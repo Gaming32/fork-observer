@@ -5,6 +5,7 @@
 
 pub mod activity;
 pub mod api;
+pub mod blake2b;
 pub mod backend;
 pub mod cache;
 pub mod config;

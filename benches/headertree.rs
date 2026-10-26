@@ -33,6 +33,7 @@ use fork_observer::types::{HeaderInfo, Tree, TreeInfo};
 use petgraph::graph::{DiGraph, NodeIndex};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
+use fork_observer::blake2b::ParsedHeader;
 
 /// Header tree sizes to benchmark with. The largest is what a fork-observer
 /// instance following mainnet since genesis holds.
@@ -54,7 +55,7 @@ const BITS: u32 = 0x1d00_ffff;
 
 // Builds a (structurally valid, PoW-invalid) header. The nonce gives headers
 // that share a parent distinct block hashes.
-fn header(prev: BlockHash, nonce: u32) -> Header {
+fn header(prev: BlockHash, nonce: u32) -> ParsedHeader {
     Header {
         version: Version::from_consensus(0x2000_0000),
         prev_blockhash: prev,
@@ -62,7 +63,7 @@ fn header(prev: BlockHash, nonce: u32) -> Header {
         time: 1_600_000_000,
         bits: CompactTarget::from_consensus(BITS),
         nonce,
-    }
+    }.into()
 }
 
 // Adds a header to the tree, connected to its parent when it has one.
@@ -70,7 +71,7 @@ fn add(
     graph: &mut DiGraph<HeaderInfo, bool>,
     index: &mut HashMap<BlockHash, NodeIndex>,
     height: u64,
-    header: Header,
+    header: ParsedHeader,
     prev: Option<NodeIndex>,
 ) -> NodeIndex {
     let hash = header.block_hash();
