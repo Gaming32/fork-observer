@@ -96,11 +96,11 @@ impl Node for Esplora {
         match res.status_code {
             200 => {
                 let url = format!("{}/tx/{}/hex", self.api_url, res.as_str()?);
-                let coinbase_hex = res.as_str()?;
                 let res = minreq::get(url.clone())
                     .with_header("content-type", "plain/text")
                     .with_timeout(8)
                     .send()?;
+                let coinbase_hex = res.as_str()?;
 
                 match res.status_code {
                     200 => match Vec::from_hex(coinbase_hex) {

@@ -3,14 +3,15 @@
 //! The fork-observer binary: loads the configuration, spawns a task per node
 //! that keeps the cache up to date, and serves the API.
 
-use bitcoin_pool_identification::{default_data, PoolIdentification};
-use corepc_client::bitcoin::{BlockHash, Network};
+use bitcoin_pool_identification::PoolIdentification;
+use corepc_client::bitcoin::{Address, BlockHash, Network};
 use env_logger::Env;
 use log::{debug, error, info, warn};
 use petgraph::graph::NodeIndex;
 use rusqlite::Connection;
 use std::cmp::max;
 use std::collections::{BTreeMap, BTreeSet};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{broadcast, Mutex};
@@ -499,7 +500,20 @@ async fn main() -> Result<(), MainError> {
                 Some(ref network) => network.to_network(),
                 None => Network::Regtest,
             };
-            let pool_identification_data = default_data(pool_identification_network);
+            let pool_identification_data = {
+                let mut pools = bitcoin_pool_identification::parse_json(include_str!(
+                    "../mining-pools/pools-v2.json"
+                ))
+                .expect("the pool JSON list should be parseable");
+                for pool in &mut pools {
+                    pool.addresses.retain(|addr| {
+                        Address::from_str(addr)
+                            .unwrap()
+                            .is_valid_for_network(pool_identification_network)
+                    })
+                }
+                pools
+            };
 
             let limit = 100;
             let mut buffer: Vec<BlockHash> = Vec::with_capacity(limit);

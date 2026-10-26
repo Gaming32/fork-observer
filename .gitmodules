@@ -1,0 +1,3 @@
+[submodule "mining-pools"]
+	path = mining-pools
+	url = https://github.com/Horizon-btc/mining-pools
