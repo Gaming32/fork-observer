@@ -189,9 +189,7 @@ pub trait Node: Sync {
                     // since we are fetching "active" (i.e. in the main chain) headers,
                     // we can fetch by block height here too.
                     let header = match self.capabilities().header_fetch_type {
-                        HeaderFetchType::Hash => {
-                            self.block_header_hash(&header_hash).await?
-                        }
+                        HeaderFetchType::Hash => self.block_header_hash(&header_hash).await?,
                         HeaderFetchType::Height => {
                             self.block_header_height(query_height as u64).await?
                         }

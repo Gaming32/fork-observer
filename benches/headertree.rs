@@ -25,6 +25,7 @@ use corepc_client::bitcoin::blockdata::block::{Header, Version};
 use corepc_client::bitcoin::hashes::Hash;
 use corepc_client::bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use fork_observer::blake2b::ParsedHeader;
 use fork_observer::cache::{MAX_FORKS_IN_CACHE, MAX_STALE_BLOCKS};
 use fork_observer::headertree::{
     recent_forks, sorted_interesting_heights, stale_blocks, strip_tree,
@@ -33,7 +34,6 @@ use fork_observer::types::{HeaderInfo, Tree, TreeInfo};
 use petgraph::graph::{DiGraph, NodeIndex};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
-use fork_observer::blake2b::ParsedHeader;
 
 /// Header tree sizes to benchmark with. The largest is what a fork-observer
 /// instance following mainnet since genesis holds.
@@ -63,7 +63,8 @@ fn header(prev: BlockHash, nonce: u32) -> ParsedHeader {
         time: 1_600_000_000,
         bits: CompactTarget::from_consensus(BITS),
         nonce,
-    }.into()
+    }
+    .into()
 }
 
 // Adds a header to the tree, connected to its parent when it has one.

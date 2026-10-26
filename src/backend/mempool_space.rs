@@ -22,8 +22,9 @@ struct MempoolSpaceBlockExtras {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct MempoolSpaceBackendInfo {
-    version: String,
+    core_version: String,
 }
 
 /// Deserializes the header in `block.extras` and checks that it hashes to `hash`,
@@ -126,7 +127,7 @@ impl Node for MempoolSpace {
 
     async fn version(&self) -> Result<String, FetchError> {
         let info: MempoolSpaceBackendInfo = self.get_json("/backend-info").await?;
-        Ok(info.version)
+        Ok(info.core_version)
     }
 
     async fn block_header_hash(&self, hash: &BlockHash) -> Result<ParsedHeader, FetchError> {
@@ -238,8 +239,11 @@ mod tests {
 
     #[test]
     fn backend_info_json_parses() {
-        let json = r#"{"hostname":"node208.fra.mempool.space","version":"3.4-dev","gitCommit":"3da515d4f","lightning":false,"backend":"esplora"}"#;
+        let json = r#"{"hostname":"server","version":"3.4-dev","gitCommit":"4878106c1","lightning":false,"backend":"esplora","coreVersion":"/Satoshi:29.4.2(mempool.guide)/Knots:20260508/","osVersion":"Linux6.12.111+deb13-amd64"}"#;
         let info: MempoolSpaceBackendInfo = serde_json::from_str(json).unwrap();
-        assert_eq!(info.version, "3.4-dev");
+        assert_eq!(
+            info.core_version,
+            "/Satoshi:29.4.2(mempool.guide)/Knots:20260508/"
+        );
     }
 }
