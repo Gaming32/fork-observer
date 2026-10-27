@@ -48,7 +48,7 @@ corepc-client = { version = "0.17.0", features = ["client-sync"] }
 bitreq = { version = "0.3.7", features = ["https"] }
 
 [dev-dependencies]
-corepc-node = { version = "0.12.0", features = ["29_0", "download"] }
+corepc-node = { version = "0.12.0", features = ["29_0"] }
 warp = { version = "0.4.2", features = ["test"] }
 criterion = { version = "0.8", features = ["async_tokio"] }
 

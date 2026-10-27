@@ -1,5 +1,5 @@
 use super::{Capabilities, HeaderFetchType, Node, NodeInfo};
-use crate::blake2b::{ParsedHeader, HEADER_V2_SIZE};
+use crate::blake2b::ParsedHeader;
 use crate::error::FetchError;
 use crate::types::ChainTip;
 use async_trait::async_trait;
@@ -136,9 +136,22 @@ impl Node for BitcoinCoreNode {
         match task::spawn_blocking(move || rpc.get_block_verbose_zero(hash_clone)).await {
             Ok(result) => match result {
                 Ok(result) => {
-                    let transactions_hex = &result.0[HEADER_V2_SIZE * 2..];
+                    let block_bytes = hex::decode(&result.0).map_err(|e| {
+                        FetchError::DataError(format!(
+                            "could not hex decode block header '{}': {}",
+                            result.0, e
+                        ))
+                    })?;
+                    let (_, _, header_len) =
+                        crate::blake2b::parse_header(&block_bytes).map_err(|e| {
+                            FetchError::DataError(format!(
+                                "could not deserialize block header '{}': {}",
+                                result.0, e
+                            ))
+                        })?;
                     let transactions: Vec<Transaction> =
-                        encode::deserialize_hex(transactions_hex).unwrap();
+                        encode::deserialize_hex(&result.0[header_len * 2..])
+                            .map_err(corepc_client::client_sync::Error::BitcoinSerialization)?;
                     Ok(transactions
                         .into_iter()
                         .next()
