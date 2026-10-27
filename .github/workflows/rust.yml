@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: Cache Cargo dependencies
@@ -39,6 +41,8 @@ jobs:
     needs: build
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
     - name: Run cargo clippy
       run: cargo clippy --verbose --all-targets --all-features
