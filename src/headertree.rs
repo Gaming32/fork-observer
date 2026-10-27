@@ -116,8 +116,36 @@ pub async fn strip_tree(
     // we saw below.
     roots.sort_by_key(|idx| striped_tree[*idx].height);
 
+    // A root that already was a root before stripping has no recorded ancestor,
+    // e.g. headers far ahead of our tip whose parents we never saw. Connecting
+    // it to the tip of the chain below would draw it as that chain's
+    // continuation, overlapping where the active chain grows. Hang it off the
+    // first root instead, so it's laid out as a branch of its own.
+    let has_recorded_parent = |idx: NodeIndex| {
+        let hash = striped_tree[idx].header.block_hash();
+        tree_locked.1.get(&hash).is_some_and(|orig_idx| {
+            tree_locked
+                .0
+                .neighbors_directed(*orig_idx, petgraph::Direction::Incoming)
+                .next()
+                .is_some()
+        })
+    };
+    let disconnected: HashSet<NodeIndex> = roots
+        .iter()
+        .skip(1)
+        .copied()
+        .filter(|idx| !has_recorded_parent(*idx))
+        .collect();
+
     let mut prev_header_to_connect_to: Option<NodeIndex> = None;
     for root in roots.iter() {
+        if disconnected.contains(root) {
+            // The chain below stays the one the next root connects to.
+            striped_tree.add_edge(roots[0], *root, &false);
+            continue;
+        }
+
         // If we have a prev_header_to_connect_to, then connect
         // the current root to it.
         if let Some(prev_idx) = prev_header_to_connect_to {
@@ -517,5 +545,26 @@ mod tests {
         heights.sort();
 
         assert_eq!(heights, vec![18, 19, 20]);
+    }
+
+    #[tokio::test]
+    async fn disconnected_chain_ahead_of_tip_branches_off_the_first_root() {
+        // A chain far ahead of our tip whose ancestors we never saw.
+        let mut headers = linear_chain(5);
+        let future_root = hi(100, header(BlockHash::all_zeros(), EASY_BITS, 100));
+        let future_tip = hi(101, header(future_root.header.block_hash(), EASY_BITS, 101));
+        headers.push(future_root.clone());
+        headers.push(future_tip);
+        let tree = tree_from(&headers);
+
+        let result = strip_tree(&tree, 10, BTreeSet::from([5]), None).await;
+        let by_height = |height: u64| result.iter().find(|h| h.height == height).unwrap();
+        let first = result.iter().min_by_key(|h| h.height).unwrap();
+
+        // hangs off the start of the drawn tree, not off our tip at height 5
+        assert!(first.height < 5);
+        assert_eq!(by_height(100).prev_id, first.id);
+        assert_eq!(by_height(5).prev_id, by_height(4).id);
+        assert_eq!(by_height(101).prev_id, by_height(100).id);
     }
 }

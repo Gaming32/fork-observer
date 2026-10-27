@@ -592,7 +592,18 @@ function preprocess_data(data) {
   // synthetic blocks from the stratum jobs feed, injected as children of the block
   // each pool builds on. max_height stays based on the real headers only, so these are
   // not treated as the animated newest block.
-  const max_height = Math.max(...header_infos.map(d => d.height))
+  //
+  // It is the height of our tip: the highest block a node has as its active tip. Headers
+  // far ahead of that whose ancestors we never saw would otherwise count as the tip,
+  // centering the view on them and putting the to-be-mined blocks out of reach.
+  // Without any active tip, e.g. before the nodes have reported in, the highest header
+  // stands in for it.
+  const known_hashes = new Set(header_infos.map(d => d.hash))
+  const active_tip_heights = node_infos.flatMap(node => node.tips)
+    .filter(tip => tip.status == "active" && known_hashes.has(tip.hash))
+    .map(tip => tip.height)
+  const max_height = Math.max(...(active_tip_heights.length > 0
+    ? active_tip_heights : header_infos.map(d => d.height)))
   let mining_headers = build_mining_headers(header_infos, max_height)
 
   var treeData = d3
