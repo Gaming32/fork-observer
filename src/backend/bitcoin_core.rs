@@ -1,10 +1,11 @@
 use super::{Capabilities, HeaderFetchType, Node, NodeInfo};
-use crate::blake2b::ParsedHeader;
+use crate::blake2b::{ParsedHeader, HEADER_V2_SIZE};
 use crate::error::FetchError;
 use crate::types::ChainTip;
 use async_trait::async_trait;
+use corepc_client::bitcoin::consensus::encode;
 use corepc_client::bitcoin::{BlockHash, Transaction};
-use corepc_client::client_sync::v31::Client;
+use corepc_client::client_sync::v29::Client;
 use corepc_client::client_sync::Auth;
 use log::{debug, error};
 use std::time::Duration;
@@ -132,13 +133,17 @@ impl Node for BitcoinCoreNode {
     async fn coinbase(&self, hash: &BlockHash, _height: u64) -> Result<Transaction, FetchError> {
         let rpc = self.rpc_client()?;
         let hash_clone = *hash;
-        match task::spawn_blocking(move || rpc.get_block(hash_clone)).await {
+        match task::spawn_blocking(move || rpc.get_block_verbose_zero(hash_clone)).await {
             Ok(result) => match result {
-                Ok(result) => Ok(result
-                    .txdata
-                    .first()
-                    .expect("Block should have a coinbase transaction")
-                    .clone()),
+                Ok(result) => {
+                    let transactions_hex = &result.0[HEADER_V2_SIZE * 2..];
+                    let transactions: Vec<Transaction> =
+                        encode::deserialize_hex(transactions_hex).unwrap();
+                    Ok(transactions
+                        .into_iter()
+                        .next()
+                        .expect("Block should have a coinbase transaction"))
+                }
                 Err(e) => Err(e.into()),
             },
             Err(e) => Err(e.into()),
