@@ -5,7 +5,8 @@ use crate::types::ChainTip;
 use async_trait::async_trait;
 use corepc_client::bitcoin::consensus::encode;
 use corepc_client::bitcoin::{BlockHash, Transaction};
-use corepc_client::client_sync::v29::Client;
+// use corepc_client::client_sync::v29::Client;
+use crate::backend::bitcoin_core::client::Client;
 use corepc_client::client_sync::Auth;
 use log::{debug, error};
 use std::time::Duration;
@@ -38,7 +39,7 @@ impl BitcoinCoreNode {
     }
 
     fn rpc_client(&self) -> Result<Client, FetchError> {
-        match Client::new_with_auth(&self.rpc_url, self.rpc_auth.clone()) {
+        match Client::new_with_auth(self.rpc_url.clone(), self.rpc_auth.clone()) {
             Ok(c) => Ok(c),
             Err(e) => {
                 error!(
@@ -282,6 +283,114 @@ impl Node for BitcoinCoreNode {
 
         Ok(headers)
     }
+}
+
+mod client {
+    use bitreq::Proxy;
+    use corepc_client::bitcoin::{Block, BlockHash};
+    use corepc_client::client_sync::{Auth, Result};
+    use corepc_client::types::v29::{
+        GetBlockHash, GetBlockVerboseOne, GetBlockVerboseThree, GetBlockVerboseTwo,
+        GetBlockVerboseZero, GetChainTips, GetNetworkInfo,
+    };
+    use corepc_client::{
+        impl_client_v17__get_block_hash, impl_client_v17__get_chain_tips,
+        impl_client_v17__get_network_info, impl_client_v29__get_block,
+    };
+    use jsonrpc::base64::prelude::BASE64_STANDARD;
+    use jsonrpc::base64::Engine;
+    use jsonrpc::bitreq_http::HttpError;
+    use log::debug;
+    use serde_json::to_value as into_json;
+    use std::io;
+    use std::time::Duration;
+
+    pub struct Client {
+        inner: jsonrpc::client::Client,
+        url: String,
+        basic_auth: String,
+        proxy: Option<Proxy>,
+    }
+
+    impl Client {
+        pub fn new_with_auth(url: String, auth: Auth) -> Result<Self> {
+            if matches!(auth, Auth::None) {
+                return Err(corepc_client::client_sync::Error::MissingUserPassword);
+            }
+            let (user, pass) = auth.get_user_pass()?;
+            Ok(Self {
+                // Transport used is dummy
+                inner: jsonrpc::client::Client::with_transport(
+                    jsonrpc::bitreq_http::BitreqHttpTransport::default(),
+                ),
+                basic_auth: format!(
+                    "Basic {}",
+                    BASE64_STANDARD.encode(format!("{}:{}", user.unwrap(), pass.unwrap()))
+                ),
+                proxy: if url
+                    .rsplit_once(':')
+                    .unwrap_or((&url, ""))
+                    .0
+                    .ends_with(".onion")
+                {
+                    Some(Proxy::new_socks5("127.0.0.1:9050").unwrap())
+                } else {
+                    None
+                },
+                url,
+            })
+        }
+
+        pub fn call<T: for<'a> serde::de::Deserialize<'a>>(
+            &self,
+            method: &str,
+            args: &[serde_json::Value],
+        ) -> Result<T> {
+            let raw = serde_json::value::to_raw_value(args)?;
+            let req = self.inner.build_request(method, Some(&*raw));
+            if log::log_enabled!(log::Level::Debug) {
+                debug!(target: "corepc", "request: {} {}", method, serde_json::Value::from(args));
+            }
+
+            let mut bitreq_req = bitreq::Request::new(bitreq::Method::Post, &self.url)
+                .with_timeout(Duration::from_secs(60))
+                .with_header("Authorization", &self.basic_auth);
+            if let Some(proxy) = &self.proxy {
+                bitreq_req = bitreq_req.with_proxy(proxy.clone());
+            }
+            let resp: jsonrpc::Response = bitreq_req
+                .with_json(&req)
+                .and_then(bitreq::Request::send)
+                .map_err(|err| match err {
+                    bitreq::Error::IoError(io_error)
+                        if self.proxy.is_some()
+                            && io_error.kind() == io::ErrorKind::ConnectionRefused =>
+                    {
+                        // Fudge the error type to ProxyConnect if failed to connect to Tor to show
+                        // that the tor service may not be running
+                        jsonrpc::bitreq_http::Error::Bitreq(bitreq::Error::ProxyConnect)
+                    }
+                    other => jsonrpc::bitreq_http::Error::from(other),
+                })
+                .and_then(|resp| match resp.json() {
+                    Ok(json) => Ok(json),
+                    Err(_) if resp.status_code != 200 => {
+                        Err(jsonrpc::bitreq_http::Error::Http(HttpError {
+                            status_code: resp.status_code,
+                            body: String::from_utf8_lossy_owned(resp.into_bytes()),
+                        }))
+                    }
+                    Err(bitreq_err) => Err(jsonrpc::bitreq_http::Error::Bitreq(bitreq_err)),
+                })
+                .map_err(jsonrpc::Error::from)?;
+            Ok(resp.result()?)
+        }
+    }
+
+    impl_client_v29__get_block!();
+    impl_client_v17__get_block_hash!();
+    impl_client_v17__get_chain_tips!();
+    impl_client_v17__get_network_info!();
 }
 
 #[cfg(test)]
