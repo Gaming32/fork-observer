@@ -62,7 +62,7 @@ const orientations = {
 
 // A countdown marker is only drawn once the chain tip is within this many
 // blocks of the configured countdown height.
-const COUNTDOWN_MARKER_THRESHOLD = 10
+const COUNTDOWN_MARKER_THRESHOLD = 144
 
 const status_to_color = {
   "active": "lime",
