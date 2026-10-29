@@ -2,6 +2,7 @@ const getNetworks = new Request('api/networks.json');
 const getInfo = new Request('api/info.json');
 const changeSSE = new EventSource('api/changes');
 
+const themeSelect = d3.select("#theme")
 const networkSelect = d3.select("#network")
 const nodeInfoRow = d3.select("#node_infos")
 const networkInfoDescription = d3.select("#network_info_description")
@@ -217,11 +218,42 @@ function set_initial_sound() {
   state_sound_enabled = false
 }
 
+function get_cookie(cname) {
+  let name = cname + "=";
+  let decodedCookie = decodeURIComponent(document.cookie);
+  let ca = decodedCookie.split(';');
+  for(let i = 0; i <ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(name) === 0) {
+      return c.substring(name.length, c.length);
+    }
+  }
+  return null;
+}
+
+function update_theme() {
+  const theme = themeSelect.node().value
+  document.documentElement.classList.remove("dark", "light")
+  if (theme !== 'system') {
+    document.documentElement.classList.add(theme)
+  }
+  document.cookie = `theme=${theme}; max-age=31536000`
+}
+
 soundCheckbox.on("input", function() {
   state_sound_enabled = this.checked
   // play the sound once on enabling, so it's clear what to listen for
   if (state_sound_enabled) play_sound()
 })
+
+if (!themeSelect.empty()) {
+  themeSelect.node().value = get_cookie("theme") ?? "system"
+  update_theme()
+}
+themeSelect.on("input", update_theme)
 
 networkSelect.on("input", async function() {
   state_selected_network_id = networkSelect.node().value
