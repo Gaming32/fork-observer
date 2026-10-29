@@ -3,12 +3,14 @@
 //! The fork-observer binary: loads the configuration, spawns a task per node
 //! that keeps the cache up to date, and serves the API.
 
-use bitcoin_pool_identification::PoolIdentification;
+use bitcoin_pool_identification::{Pool, PoolIdentification};
 use corepc_client::bitcoin::{Address, BlockHash, Network};
 use env_logger::Env;
+use itertools::Itertools;
 use log::{debug, error, info, warn};
 use petgraph::graph::NodeIndex;
 use rusqlite::Connection;
+use serde::Deserialize;
 use std::cmp::max;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
@@ -507,18 +509,31 @@ async fn main() -> Result<(), MainError> {
                 None => Network::Regtest,
             };
             let pool_identification_data = {
-                let mut pools = bitcoin_pool_identification::parse_json(include_str!(
-                    "../mining-pools/pools-v2.json"
-                ))
-                .expect("the pool JSON list should be parseable");
-                for pool in &mut pools {
-                    pool.addresses.retain(|addr| {
-                        Address::from_str(addr)
-                            .unwrap()
-                            .is_valid_for_network(pool_identification_network)
-                    })
+                #[derive(Deserialize)]
+                struct PoolWithDatum {
+                    #[serde(default, rename = "DATUM")]
+                    datum: bool,
+                    #[serde(flatten)]
+                    pool: Pool,
                 }
-                pools
+                let (datum_pools, non_datum_pools) = serde_json::from_str::<Vec<PoolWithDatum>>(
+                    include_str!("../mining-pools/pools-v2.json"),
+                )
+                .expect("the pool JSON list should be parseable")
+                .into_iter()
+                .partition::<Vec<_>, _>(|pool| pool.datum);
+                datum_pools
+                    .into_iter()
+                    .chain(non_datum_pools)
+                    .map(|pool| pool.pool)
+                    .update(|pool| {
+                        pool.addresses.retain(|addr| {
+                            Address::from_str(addr)
+                                .unwrap()
+                                .is_valid_for_network(pool_identification_network)
+                        })
+                    })
+                    .collect_vec()
             };
 
             let limit = 100;
