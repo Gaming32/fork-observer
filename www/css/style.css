@@ -298,7 +298,7 @@ text.block-miner {
  font-size: 10px;
 }
 
-.block-miner-group {
+text.block-miner, use.block-miner-logo-bg {
   stroke: var(--surface-bg);
   stroke-width: 6px;
   paint-order: stroke fill;
