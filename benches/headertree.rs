@@ -18,7 +18,7 @@
 //! a run with `cargo bench -- --save-baseline before` and compare a change
 //! against it with `cargo bench -- --baseline before`.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use corepc_client::bitcoin::blockdata::block::{Header, Version};
@@ -38,10 +38,6 @@ use tokio::sync::Mutex;
 const TREE_SIZES: &[usize] = &[10_000, 100_000, 1_000_000];
 /// A stale block is added every this many heights.
 const FORK_EVERY: u64 = 100;
-/// The `max_interesting_heights` settings to benchmark `strip_tree` with: the
-/// value in the example config, and the much larger limit used by some
-/// downstream deployments.
-const MAX_INTERESTING_HEIGHTS: &[usize] = &[100, 5_000];
 /// Benchmarks on trees at or above this size take seconds per iteration, so
 /// they run with the smallest sample criterion allows.
 const LARGE_TREE: usize = 1_000_000;
@@ -117,14 +113,6 @@ fn synthetic_tree(size: usize) -> Tree {
 
     let tree_info: TreeInfo = (graph, index);
     Arc::new(Mutex::new(tree_info))
-}
-
-/// The tip heights a network's nodes would report for the synthetic tree: the
-/// chain tip, which is the highest header.
-fn tip_heights(size: usize) -> BTreeSet<u64> {
-    let mut tips = BTreeSet::new();
-    tips.insert(size as u64 - size as u64 / FORK_EVERY - 1);
-    tips
 }
 
 fn sample_size_for(size: usize) -> usize {

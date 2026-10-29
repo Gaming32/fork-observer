@@ -494,7 +494,7 @@ mod tests {
             .collect();
         assert_eq!(active_before.len(), 1, "expected exactly one active tip");
         assert_eq!(active_before[0].height, 5);
-        let original_tip_hash = active_before[0].hash.clone();
+        let original_tip_hash = active_before[0].hash;
 
         // Invalidate the block at height 4. This rolls the active chain back to
         // height 3 and turns the old blocks 4..5 into an invalid branch.
