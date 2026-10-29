@@ -558,10 +558,17 @@ function append_miner_label(sel) {
   group.append("rect").attr("class", "block-miner-bg")
   group.append("text")
     .classed("block-pool-name", true)
-    .attr("dy", o.miner_dy)
     .attr("dx", o.miner_dx)
+    .attr("dy", o.miner_dy)
     .classed("block-miner", true)
     .text(d => miner_label(d.data.data.miner))
+  group
+    .append("use")
+    .attr("width", 16)
+    .attr("height", 16)
+    .attr("x", o.miner_dx - 8)
+    .attr("y", o.miner_dy + 6)
+    .attr("href", d => `/icons/${d.data.data.miner.replaceAll(/[^a-z0-9]/ig, '').toLowerCase()}.svg`)
   return group
 }
 

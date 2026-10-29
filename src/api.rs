@@ -12,7 +12,13 @@ use std::convert::Infallible;
 use std::str::FromStr;
 use tokio::sync::broadcast::Sender;
 use tokio_stream::wrappers::BroadcastStream;
-use warp::{Filter, sse::Event};
+use warp::http::HeaderMap;
+use warp::hyper::body::Bytes;
+use warp::path::FullPath;
+use warp::{Filter, Rejection, Reply, sse::Event};
+use warp_reverse_proxy::{
+    Method, QueryParameters, extract_request_data_filter, proxy_to_and_forward_response,
+};
 
 pub fn build_routes(
     network_infos: &[NetworkJson],
@@ -24,6 +30,10 @@ pub fn build_routes(
     let www_dir = warp::get()
         .and(warp::path("static"))
         .and(warp::fs::dir(config.www_path.clone()));
+    let icons_dir = warp::get()
+        .and(warp::path!("icons" / ..))
+        .and(extract_request_data_filter())
+        .and_then(icons_response);
     let index_html = warp::get()
         .and(warp::path::end())
         .and(warp::fs::file(config.www_path.join("index.html")));
@@ -136,6 +146,7 @@ pub fn build_routes(
         });
 
     www_dir
+        .or(icons_dir)
         .or(index_html)
         .or(fullscreen_html)
         .or(activity_html)
@@ -153,6 +164,27 @@ pub fn build_routes(
         .or(unreachable_nodes_rss)
         .or(invalid_blocks_rss)
         .or(slug_redirect)
+}
+
+pub async fn icons_response(
+    uri: FullPath,
+    params: QueryParameters,
+    method: Method,
+    mut headers: HeaderMap,
+    body: Bytes,
+) -> Result<impl Reply, Rejection> {
+    headers.remove("Host");
+    proxy_to_and_forward_response(
+        "https://raw.githubusercontent.com/Retropex/mining-pool-logos/refs/heads/master"
+            .to_string(),
+        "icons".to_string(),
+        uri,
+        params,
+        method,
+        headers,
+        body,
+    )
+    .await
 }
 
 pub async fn info_response(footer: String) -> Result<impl warp::Reply, Infallible> {
