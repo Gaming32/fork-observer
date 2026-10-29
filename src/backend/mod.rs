@@ -51,10 +51,10 @@ pub struct Capabilities {
 
 #[async_trait]
 pub trait Node: Sync {
-    fn info(&self) -> NodeInfo;
+    fn info(&self) -> &NodeInfo;
     /// Returns information about the capabilities the data source has.
     fn capabilities(&self) -> Capabilities;
-    fn rpc_url(&self) -> String;
+    fn rpc_url(&self) -> &str;
     async fn version(&self) -> Result<String, FetchError>;
     async fn block_header_hash(&self, hash: &BlockHash) -> Result<ParsedHeader, FetchError>;
     async fn block_header_height(&self, height: u64) -> Result<ParsedHeader, FetchError>;

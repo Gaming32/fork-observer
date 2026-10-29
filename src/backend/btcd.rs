@@ -26,8 +26,8 @@ impl BtcdNode {
 
 #[async_trait]
 impl Node for BtcdNode {
-    fn info(&self) -> NodeInfo {
-        self.info.clone()
+    fn info(&self) -> &NodeInfo {
+        &self.info
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -38,8 +38,8 @@ impl Node for BtcdNode {
         }
     }
 
-    fn rpc_url(&self) -> String {
-        self.rpc_url.clone()
+    fn rpc_url(&self) -> &str {
+        &self.rpc_url
     }
 
     async fn version(&self) -> Result<String, FetchError> {

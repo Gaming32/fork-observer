@@ -21,8 +21,8 @@ impl Esplora {
 
 #[async_trait]
 impl Node for Esplora {
-    fn info(&self) -> NodeInfo {
-        self.info.clone()
+    fn info(&self) -> &NodeInfo {
+        &self.info
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -33,8 +33,8 @@ impl Node for Esplora {
         }
     }
 
-    fn rpc_url(&self) -> String {
-        self.api_url.clone()
+    fn rpc_url(&self) -> &str {
+        &self.api_url
     }
 
     async fn version(&self) -> Result<String, FetchError> {
@@ -44,8 +44,8 @@ impl Node for Esplora {
     async fn block_header_hash(&self, hash: &BlockHash) -> Result<ParsedHeader, FetchError> {
         let url = format!("{}/block/{}/header", self.api_url, hash);
 
-        let res = minreq::get(url.clone())
-            .with_header("content-type", "plain/text")
+        let res = minreq::get(&url)
+            .with_header("Accept", "text/plain")
             .with_timeout(8)
             .send()?;
 
@@ -86,18 +86,25 @@ impl Node for Esplora {
     }
 
     async fn coinbase(&self, hash: &BlockHash, _height: u64) -> Result<Transaction, FetchError> {
-        let url = format!("{}/block/{}/txid/0", self.api_url, hash);
+        let url = format!("{}/block/{}/txids", self.api_url, hash);
 
-        let res = minreq::get(url.clone())
-            .with_header("content-type", "plain/text")
+        let res = minreq::get(&url)
+            .with_header("Accept", "application/json")
             .with_timeout(8)
             .send()?;
 
         match res.status_code {
             200 => {
-                let url = format!("{}/tx/{}/hex", self.api_url, res.as_str()?);
-                let res = minreq::get(url.clone())
-                    .with_header("content-type", "plain/text")
+                let txids: Vec<String> = res.json()?;
+                let url = format!(
+                    "{}/tx/{}/hex",
+                    self.api_url,
+                    txids
+                        .first()
+                        .expect("Block should contain at least one transaction"),
+                );
+                let res = minreq::get(&url)
+                    .with_header("Accept", "text/plain")
                     .with_timeout(8)
                     .send()?;
                 let coinbase_hex = res.as_str()?;
@@ -144,7 +151,7 @@ impl Node for Esplora {
     async fn block(&self, hash: &BlockHash) -> Result<Vec<u8>, FetchError> {
         let url = format!("{}/block/{}/raw", self.api_url, hash);
 
-        let res = minreq::get(url.clone()).with_timeout(8).send()?;
+        let res = minreq::get(&url).with_timeout(8).send()?;
 
         match res.status_code {
             200 => Ok(res.as_bytes().to_vec()),
@@ -161,8 +168,8 @@ impl Node for Esplora {
     async fn block_hash(&self, height: u64) -> Result<BlockHash, FetchError> {
         let url = format!("{}/block-height/{}", self.api_url, height);
 
-        let res = minreq::get(url.clone())
-            .with_header("content-type", "plain/text")
+        let res = minreq::get(&url)
+            .with_header("Accept", "text/plain")
             .with_timeout(8)
             .send()?;
 
@@ -208,8 +215,8 @@ impl Node for Esplora {
         // backend for the same network.
         let url = format!("{}/blocks/tip/height", self.api_url);
 
-        let res = minreq::get(url.clone())
-            .with_header("content-type", "plain/text")
+        let res = minreq::get(&url)
+            .with_header("Accept", "text/plain")
             .with_timeout(8)
             .send()?;
 

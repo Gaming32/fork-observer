@@ -62,8 +62,8 @@ impl Electrum {
 
 #[async_trait]
 impl Node for Electrum {
-    fn info(&self) -> NodeInfo {
-        self.info.clone()
+    fn info(&self) -> &NodeInfo {
+        &self.info
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -74,8 +74,8 @@ impl Node for Electrum {
         }
     }
 
-    fn rpc_url(&self) -> String {
-        "not used".to_string()
+    fn rpc_url(&self) -> &str {
+        "not used"
     }
 
     async fn version(&self) -> Result<String, FetchError> {

@@ -177,8 +177,8 @@ impl BlockDn {
 
 #[async_trait]
 impl Node for BlockDn {
-    fn info(&self) -> NodeInfo {
-        self.info.clone()
+    fn info(&self) -> &NodeInfo {
+        &self.info
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -189,8 +189,8 @@ impl Node for BlockDn {
         }
     }
 
-    fn rpc_url(&self) -> String {
-        self.api_url.clone()
+    fn rpc_url(&self) -> &str {
+        &self.api_url
     }
 
     async fn version(&self) -> Result<String, FetchError> {

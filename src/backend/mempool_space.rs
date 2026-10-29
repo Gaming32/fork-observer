@@ -100,8 +100,8 @@ impl MempoolSpace {
 
 #[async_trait]
 impl Node for MempoolSpace {
-    fn info(&self) -> NodeInfo {
-        self.info.clone()
+    fn info(&self) -> &NodeInfo {
+        &self.info
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -121,7 +121,7 @@ impl Node for MempoolSpace {
         }
     }
 
-    fn rpc_url(&self) -> String {
+    fn rpc_url(&self) -> &str {
         self.esplora.rpc_url()
     }
 

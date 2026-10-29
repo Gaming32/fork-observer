@@ -46,7 +46,7 @@ pub async fn populate_cache(network: &config::Network, tree: &Tree, caches: &Cac
                 (
                     n.info().id,
                     NodeDataJson::new(
-                        n.info(),
+                        n.info().clone(),
                         &[],                         // no chain tips knows yet
                         VERSION_UNKNOWN.to_string(), // is updated later, when we know it
                         0,                           // timestamp of last block update
