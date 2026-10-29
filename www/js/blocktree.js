@@ -562,12 +562,14 @@ function append_miner_label(sel) {
     .attr("dy", o.miner_dy)
     .classed("block-miner", true)
     .text(d => miner_label(d.data.data.miner))
+  group.append("rect").attr("class", "block-miner-logo-bg")
   group
     .append("use")
     .attr("width", 16)
     .attr("height", 16)
     .attr("x", o.miner_dx - 8)
-    .attr("y", o.miner_dy + 6)
+    .attr("y", o.miner_dy + 4)
+    .classed("block-miner-logo", true)
     .attr("href", d => `/icons/${d.data.data.miner.replaceAll(/[^a-z0-9]/ig, '').toLowerCase()}.svg`)
   return group
 }
@@ -1291,8 +1293,16 @@ function recalc_miner_boxes() {
   const groups = blockLayer.selectAll(".block-miner-group")
   const boxes = groups.nodes().map(el => el.querySelector("text.block-miner").getBBox())
   groups.select("rect.block-miner-bg")
-    .attr("x", (d, i) => boxes[i].width ? boxes[i].x : 0).attr("y", (d, i) => boxes[i].y)
-    .attr("width", (d, i) => boxes[i].width ? boxes[i].width : 0).attr("height", (d, i) => boxes[i].height)
+    .attr("x", (d, i) => boxes[i].width ? boxes[i].x : 0)
+    .attr("y", (d, i) => boxes[i].y)
+    .attr("width", (d, i) => boxes[i].width ? boxes[i].width : 0)
+    .attr("height", (d, i) => boxes[i].height)
+  const logoBoxes = groups.nodes().map(el => el.querySelector("use.block-miner-logo").getBBox())
+  groups.select("rect.block-miner-logo-bg")
+    .attr("x", (d, i) => logoBoxes[i].width ? logoBoxes[i].x - 3 : 0)
+    .attr("y", (d, i) => logoBoxes[i].y - 3)
+    .attr("width", (d, i) => logoBoxes[i].width ? logoBoxes[i].width + 6 : 0)
+    .attr("height", (d, i) => logoBoxes[i].height + 6)
 }
 
 // measure each tip-status label and stack the boxes just off the block. Runs on draw

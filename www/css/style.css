@@ -298,7 +298,7 @@ text.block-miner {
  font-size: 10px;
 }
 
-rect.block-miner-bg {
+rect.block-miner-bg, rect.block-miner-logo-bg {
  fill: var(--surface-bg);
 }
 
