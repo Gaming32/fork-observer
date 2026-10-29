@@ -298,8 +298,10 @@ text.block-miner {
  font-size: 10px;
 }
 
-rect.block-miner-bg, rect.block-miner-logo-bg {
- fill: var(--surface-bg);
+.block-miner-group {
+  stroke: var(--surface-bg);
+  stroke-width: 6px;
+  paint-order: stroke fill;
 }
 
 .block {

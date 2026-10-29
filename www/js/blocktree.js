@@ -555,20 +555,16 @@ function miner_label(miner) {
 // the text in a later layout pass (recalc_miner_boxes).
 function append_miner_label(sel) {
   let group = sel.append("g").attr("class", "block-miner-group")
-  group.append("rect").attr("class", "block-miner-bg")
   group.append("text")
     .classed("block-pool-name", true)
     .attr("dx", o.miner_dx)
     .attr("dy", o.miner_dy)
     .classed("block-miner", true)
     .text(d => miner_label(d.data.data.miner))
-  group.append("rect").attr("class", "block-miner-logo-bg")
   group
     .append("use")
     .attr("width", 16)
     .attr("height", 16)
-    .attr("x", o.miner_dx - 8)
-    .attr("y", o.miner_dy + 4)
     .classed("block-miner-logo", true)
     .attr("href", d => `/icons/${d.data.data.miner.replaceAll(/[^a-z0-9]/ig, '').toLowerCase()}.svg`)
   return group
@@ -1292,17 +1288,13 @@ function recalc_miner_boxes() {
   // out the whole SVG again, once per block
   const groups = blockLayer.selectAll(".block-miner-group")
   const boxes = groups.nodes().map(el => el.querySelector("text.block-miner").getBBox())
-  groups.select("rect.block-miner-bg")
-    .attr("x", (d, i) => boxes[i].width ? boxes[i].x : 0)
-    .attr("y", (d, i) => boxes[i].y)
-    .attr("width", (d, i) => boxes[i].width ? boxes[i].width : 0)
-    .attr("height", (d, i) => boxes[i].height)
   const logoBoxes = groups.nodes().map(el => el.querySelector("use.block-miner-logo").getBBox())
-  groups.select("rect.block-miner-logo-bg")
-    .attr("x", (d, i) => logoBoxes[i].width ? logoBoxes[i].x - 3 : 0)
-    .attr("y", (d, i) => logoBoxes[i].y - 3)
-    .attr("width", (d, i) => logoBoxes[i].width ? logoBoxes[i].width + 6 : 0)
-    .attr("height", (d, i) => logoBoxes[i].height + 6)
+  groups.select("text.block-miner")
+    .attr("dx", (d, i) => o.miner_dx + (logoBoxes[i].width ? 9.5 : 0))
+    .attr("dy", (d, i) => o.miner_dy + (logoBoxes[i].height ? logoBoxes[i].height / 2 - boxes[i].height / 2 + 1 : 0))
+  groups.select("use.block-miner-logo")
+    .attr("x", (d, i) => boxes[i].x - (logoBoxes[i].width ? 9.5 : 0))
+    .attr("y", (d, i) => boxes[i].y + 1)
 }
 
 // measure each tip-status label and stack the boxes just off the block. Runs on draw
