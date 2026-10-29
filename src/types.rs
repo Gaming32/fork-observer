@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -177,7 +176,7 @@ pub struct Fork {
 impl TipInfoJson {
     pub fn new(tip: &ChainTip) -> Self {
         TipInfoJson {
-            hash: tip.hash.clone(),
+            hash: tip.hash.to_string(),
             status: tip.status.to_string(),
             height: tip.height,
         }
@@ -267,7 +266,7 @@ pub struct DataChanged {
 
 /// Deserialized via `From<String>` so that a status we don't know yet becomes
 /// `Unknown` instead of failing the whole `getchaintips` response.
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Deserialize, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(from = "String")]
 pub enum ChainTipStatus {
     Active,
@@ -316,10 +315,10 @@ impl fmt::Display for ChainTipStatus {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChainTip {
     pub height: u64,
-    pub hash: String,
+    pub hash: BlockHash,
     pub branchlen: usize,
     pub status: ChainTipStatus,
 }
@@ -328,15 +327,9 @@ impl From<ChainTips> for ChainTip {
     fn from(t: ChainTips) -> Self {
         ChainTip {
             height: t.height as u64,
-            hash: t.hash.to_string(),
+            hash: t.hash,
             branchlen: t.branch_length as usize,
             status: t.status.into(),
         }
-    }
-}
-
-impl ChainTip {
-    pub fn block_hash(&self) -> BlockHash {
-        BlockHash::from_str(&self.hash).unwrap()
     }
 }

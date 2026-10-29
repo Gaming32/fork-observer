@@ -20,7 +20,7 @@ use log::{debug, error, warn};
 use petgraph::graph::NodeIndex;
 use std::fmt;
 use tokio::sync::broadcast;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 
 pub const VERSION_UNKNOWN: &str = "unknown";
 pub const MINER_UNKNOWN: &str = "Unknown";
@@ -32,6 +32,7 @@ pub async fn populate_cache(network: &config::Network, tree: &Tree, caches: &Cac
     let hij = headertree::strip_tree(
         tree,
         network.max_interesting_heights,
+        BTreeSet::new(),
         BTreeSet::new(),
         network.countdown.as_ref().map(|c| c.height),
     )
@@ -74,8 +75,9 @@ pub async fn populate_cache(network: &config::Network, tree: &Tree, caches: &Cac
 // This includes tips that aren't from a fork, but rather from
 // a stale or stuck node (i.e. not an up-to-date view of the
 // blocktree).
-pub async fn tip_heights(network_id: u32, caches: &Caches) -> BTreeSet<u64> {
+pub async fn tip_heights(network_id: u32, caches: &Caches) -> (BTreeSet<u64>, BTreeSet<u64>) {
     let mut tip_heights: BTreeSet<u64> = BTreeSet::new();
+    let mut active_tip_heights: BTreeSet<u64> = BTreeSet::new();
     {
         let locked_cache = caches.lock().await;
         let this_network = locked_cache
@@ -85,10 +87,13 @@ pub async fn tip_heights(network_id: u32, caches: &Caches) -> BTreeSet<u64> {
         for node in node_infos.iter() {
             for tip in node.1.tips.iter() {
                 tip_heights.insert(tip.height);
+                if tip.status == "active" {
+                    active_tip_heights.insert(tip.height);
+                }
             }
         }
     }
-    tip_heights
+    (tip_heights, active_tip_heights)
 }
 
 /// Recomputes the stripped header tree, the recent forks and the stale blocks
@@ -101,14 +106,17 @@ pub async fn update_header_tree_cache(
     tree: &Tree,
     caches: &Caches,
     extra_tip_heights: impl IntoIterator<Item = u64>,
+    extra_active_tip_heights: impl IntoIterator<Item = u64>,
     cache_changed_tx: &broadcast::Sender<u32>,
 ) {
-    let mut tip_heights: BTreeSet<u64> = tip_heights(network.id, caches).await;
+    let (mut tip_heights, mut active_tip_heights) = tip_heights(network.id, caches).await;
     tip_heights.extend(extra_tip_heights);
+    active_tip_heights.extend(extra_active_tip_heights);
     let header_infos_json = headertree::strip_tree(
         tree,
         network.max_interesting_heights,
         tip_heights,
+        active_tip_heights,
         network.countdown.as_ref().map(|c| c.height),
     )
     .await;
@@ -390,7 +398,12 @@ pub async fn load_node_version(node: BoxedSyncSendNode, network: &str) -> String
             }
             Err(e) => match e {
                 error::FetchError::BitcoinCoreRPC(JsonRpc(msg)) => {
-                    warn!("Could not fetch getnetworkinfo from node='{}' on network '{}': {:?}. Retrying...", node.info().name, network, msg);
+                    warn!(
+                        "Could not fetch getnetworkinfo from node='{}' on network '{}': {:?}. Retrying...",
+                        node.info().name,
+                        network,
+                        msg
+                    );
                 }
                 _ => {
                     error!(

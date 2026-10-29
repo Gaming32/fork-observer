@@ -8,7 +8,7 @@
 //! per network are additionally kept in an in-memory ring buffer so the common
 //! "show me recent activity" API request never hits the database.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -17,10 +17,10 @@ use std::time::SystemTime;
 use corepc_client::bitcoin::BlockHash;
 use log::{debug, error, info, warn};
 use petgraph::graph::NodeIndex;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::Duration;
 
 use crate::error::DbError;
@@ -373,7 +373,7 @@ pub(crate) async fn write_events(
 /// An empty `old` yields no events: it's the first successful poll after
 /// startup and diffing against it would log every historical fork tip the
 /// node knows about.
-pub fn diff_tips(old: &[ChainTip], new: &[ChainTip]) -> Vec<ActivityEventKind> {
+pub fn diff_tips(old: &BTreeSet<ChainTip>, new: &BTreeSet<ChainTip>) -> Vec<ActivityEventKind> {
     if old.is_empty() {
         return vec![];
     }
@@ -381,15 +381,15 @@ pub fn diff_tips(old: &[ChainTip], new: &[ChainTip]) -> Vec<ActivityEventKind> {
 
     let old_active = old.iter().find(|t| t.status == ChainTipStatus::Active);
     let new_active = new.iter().find(|t| t.status == ChainTipStatus::Active);
-    if let (Some(old_active), Some(new_active)) = (old_active, new_active) {
-        if old_active.hash != new_active.hash {
-            events.push(ActivityEventKind::ActiveTipChanged {
-                old_hash: old_active.hash.clone(),
-                old_height: old_active.height,
-                new_hash: new_active.hash.clone(),
-                new_height: new_active.height,
-            });
-        }
+    if let (Some(old_active), Some(new_active)) = (old_active, new_active)
+        && old_active.hash != new_active.hash
+    {
+        events.push(ActivityEventKind::ActiveTipChanged {
+            old_hash: old_active.hash.to_string(),
+            old_height: old_active.height,
+            new_hash: new_active.hash.to_string(),
+            new_height: new_active.height,
+        });
     }
 
     for tip in new {
@@ -398,14 +398,14 @@ pub fn diff_tips(old: &[ChainTip], new: &[ChainTip]) -> Vec<ActivityEventKind> {
                 // A new active tip is already covered by ActiveTipChanged.
                 if tip.status != ChainTipStatus::Active {
                     events.push(ActivityEventKind::TipAdded {
-                        hash: tip.hash.clone(),
+                        hash: tip.hash.to_string(),
                         height: tip.height,
                         status: tip.status.to_string(),
                     });
                 }
                 if tip.status == ChainTipStatus::Invalid {
                     events.push(ActivityEventKind::InvalidBlockObserved {
-                        hash: tip.hash.clone(),
+                        hash: tip.hash.to_string(),
                         height: tip.height,
                     });
                 }
@@ -414,7 +414,7 @@ pub fn diff_tips(old: &[ChainTip], new: &[ChainTip]) -> Vec<ActivityEventKind> {
                 // The tip becoming active is covered by ActiveTipChanged.
                 if tip.status != ChainTipStatus::Active {
                     events.push(ActivityEventKind::TipStatusChanged {
-                        hash: tip.hash.clone(),
+                        hash: tip.hash.to_string(),
                         height: tip.height,
                         old_status: old_tip.status.to_string(),
                         new_status: tip.status.to_string(),
@@ -422,7 +422,7 @@ pub fn diff_tips(old: &[ChainTip], new: &[ChainTip]) -> Vec<ActivityEventKind> {
                 }
                 if tip.status == ChainTipStatus::Invalid {
                     events.push(ActivityEventKind::InvalidBlockObserved {
-                        hash: tip.hash.clone(),
+                        hash: tip.hash.to_string(),
                         height: tip.height,
                     });
                 }
@@ -484,7 +484,11 @@ pub async fn reorg_info(tree: &Tree, old_hash: &str, new_hash: &str) -> Option<(
 
 /// Diffs a node's tips and upgrades active-tip changes to reorg events where
 /// the header tree shows the old tip was abandoned.
-pub async fn tip_events(old: &[ChainTip], new: &[ChainTip], tree: &Tree) -> Vec<ActivityEventKind> {
+pub async fn tip_events(
+    old: &BTreeSet<ChainTip>,
+    new: &BTreeSet<ChainTip>,
+    tree: &Tree,
+) -> Vec<ActivityEventKind> {
     let mut events = diff_tips(old, new);
     for event in events.iter_mut() {
         if let ActivityEventKind::ActiveTipChanged {
@@ -493,20 +497,18 @@ pub async fn tip_events(old: &[ChainTip], new: &[ChainTip], tree: &Tree) -> Vec<
             new_hash,
             new_height,
         } = event
-        {
-            if let Some((common_ancestor, common_height, depth)) =
+            && let Some((common_ancestor, common_height, depth)) =
                 reorg_info(tree, old_hash, new_hash).await
-            {
-                *event = ActivityEventKind::ReorgDetected {
-                    old_hash: old_hash.clone(),
-                    old_height: *old_height,
-                    new_hash: new_hash.clone(),
-                    new_height: *new_height,
-                    common_ancestor,
-                    common_height,
-                    depth,
-                };
-            }
+        {
+            *event = ActivityEventKind::ReorgDetected {
+                old_hash: old_hash.clone(),
+                old_height: *old_height,
+                new_hash: new_hash.clone(),
+                new_height: *new_height,
+                common_ancestor,
+                common_height,
+                depth,
+            };
         }
     }
     events
@@ -686,18 +688,46 @@ mod tests {
     fn tip(hash: &str, height: u64, status: ChainTipStatus) -> ChainTip {
         ChainTip {
             height,
-            hash: hash.to_string(),
+            hash: BlockHash::from_str(hash).unwrap(),
             branchlen: 0,
             status,
         }
     }
 
+    fn diff_tips(old: &[ChainTip], new: &[ChainTip]) -> Vec<ActivityEventKind> {
+        super::diff_tips(
+            &old.iter().copied().collect(),
+            &new.iter().copied().collect(),
+        )
+    }
+
+    async fn tip_events(old: &[ChainTip], new: &[ChainTip], tree: &Tree) -> Vec<ActivityEventKind> {
+        super::tip_events(
+            &old.iter().copied().collect(),
+            &new.iter().copied().collect(),
+            tree,
+        )
+        .await
+    }
+
     #[test]
     fn diff_tips_first_poll_yields_no_events() {
         let new = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 8, ChainTipStatus::ValidFork),
-            tip("cc", 5, ChainTipStatus::Invalid),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                8,
+                ChainTipStatus::ValidFork,
+            ),
+            tip(
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                5,
+                ChainTipStatus::Invalid,
+            ),
         ];
         assert!(diff_tips(&[], &new).is_empty());
     }
@@ -705,22 +735,40 @@ mod tests {
     #[test]
     fn diff_tips_unchanged_yields_no_events() {
         let tips = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 8, ChainTipStatus::ValidFork),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                8,
+                ChainTipStatus::ValidFork,
+            ),
         ];
         assert!(diff_tips(&tips, &tips).is_empty());
     }
 
     #[test]
     fn diff_tips_active_advance() {
-        let old = vec![tip("aa", 10, ChainTipStatus::Active)];
-        let new = vec![tip("bb", 11, ChainTipStatus::Active)];
+        let old = vec![tip(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            10,
+            ChainTipStatus::Active,
+        )];
+        let new = vec![tip(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            11,
+            ChainTipStatus::Active,
+        )];
         assert_eq!(
             diff_tips(&old, &new),
             vec![ActivityEventKind::ActiveTipChanged {
-                old_hash: "aa".to_string(),
+                old_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
                 old_height: 10,
-                new_hash: "bb".to_string(),
+                new_hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
                 new_height: 11,
             }]
         );
@@ -728,15 +776,28 @@ mod tests {
 
     #[test]
     fn diff_tips_new_fork_tip() {
-        let old = vec![tip("aa", 10, ChainTipStatus::Active)];
+        let old = vec![tip(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            10,
+            ChainTipStatus::Active,
+        )];
         let new = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 9, ChainTipStatus::ValidFork),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                9,
+                ChainTipStatus::ValidFork,
+            ),
         ];
         assert_eq!(
             diff_tips(&old, &new),
             vec![ActivityEventKind::TipAdded {
-                hash: "bb".to_string(),
+                hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
                 height: 9,
                 status: "valid-fork".to_string(),
             }]
@@ -745,21 +806,35 @@ mod tests {
 
     #[test]
     fn diff_tips_new_invalid_tip_yields_both_events() {
-        let old = vec![tip("aa", 10, ChainTipStatus::Active)];
+        let old = vec![tip(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            10,
+            ChainTipStatus::Active,
+        )];
         let new = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 11, ChainTipStatus::Invalid),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                11,
+                ChainTipStatus::Invalid,
+            ),
         ];
         assert_eq!(
             diff_tips(&old, &new),
             vec![
                 ActivityEventKind::TipAdded {
-                    hash: "bb".to_string(),
+                    hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                        .to_string(),
                     height: 11,
                     status: "invalid".to_string(),
                 },
                 ActivityEventKind::InvalidBlockObserved {
-                    hash: "bb".to_string(),
+                    hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                        .to_string(),
                     height: 11,
                 }
             ]
@@ -769,24 +844,42 @@ mod tests {
     #[test]
     fn diff_tips_status_change_to_invalid() {
         let old = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 11, ChainTipStatus::HeadersOnly),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                11,
+                ChainTipStatus::HeadersOnly,
+            ),
         ];
         let new = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 11, ChainTipStatus::Invalid),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                11,
+                ChainTipStatus::Invalid,
+            ),
         ];
         assert_eq!(
             diff_tips(&old, &new),
             vec![
                 ActivityEventKind::TipStatusChanged {
-                    hash: "bb".to_string(),
+                    hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                        .to_string(),
                     height: 11,
                     old_status: "headers-only".to_string(),
                     new_status: "invalid".to_string(),
                 },
                 ActivityEventKind::InvalidBlockObserved {
-                    hash: "bb".to_string(),
+                    hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                        .to_string(),
                     height: 11,
                 }
             ]
@@ -798,24 +891,43 @@ mod tests {
         // A reorg as seen via getchaintips: the fork tip becomes active and
         // the old active tip stays behind as a valid-fork.
         let old = vec![
-            tip("aa", 10, ChainTipStatus::Active),
-            tip("bb", 10, ChainTipStatus::ValidFork),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                10,
+                ChainTipStatus::ValidFork,
+            ),
         ];
         let new = vec![
-            tip("cc", 11, ChainTipStatus::Active),
-            tip("aa", 10, ChainTipStatus::ValidFork),
+            tip(
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                11,
+                ChainTipStatus::Active,
+            ),
+            tip(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                10,
+                ChainTipStatus::ValidFork,
+            ),
         ];
         assert_eq!(
             diff_tips(&old, &new),
             vec![
                 ActivityEventKind::ActiveTipChanged {
-                    old_hash: "aa".to_string(),
+                    old_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                     old_height: 10,
-                    new_hash: "cc".to_string(),
+                    new_hash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                        .to_string(),
                     new_height: 11,
                 },
                 ActivityEventKind::TipStatusChanged {
-                    hash: "aa".to_string(),
+                    hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                     height: 10,
                     old_status: "active".to_string(),
                     new_status: "valid-fork".to_string(),
@@ -1067,11 +1179,13 @@ mod tests {
 
         // Other networks have no events.
         assert!(activity.recent_events(1, 10).await.is_empty());
-        assert!(activity
-            .events_before(1, i64::MAX, 10)
-            .await
-            .expect("query")
-            .is_empty());
+        assert!(
+            activity
+                .events_before(1, i64::MAX, 10)
+                .await
+                .expect("query")
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1190,7 +1304,7 @@ mod tests {
         assert_eq!(details, serde_json::json!({}));
 
         let (kind, details) = ActivityEventKind::TipAdded {
-            hash: "aa".to_string(),
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
             height: 100,
             status: "valid-fork".to_string(),
         }
@@ -1198,7 +1312,7 @@ mod tests {
         assert_eq!(kind, "tip-added");
         assert_eq!(
             details,
-            serde_json::json!({"hash": "aa", "height": 100, "status": "valid-fork"})
+            serde_json::json!({"hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "height": 100, "status": "valid-fork"})
         );
     }
 }

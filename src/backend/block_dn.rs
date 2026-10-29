@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use corepc_client::bitcoin::blockdata::block::Header;
 use corepc_client::bitcoin::{Block, BlockHash, Transaction};
 use serde::Deserialize;
+use std::str::FromStr;
 
 const BLOCKDN_HEADER_SIZE: u64 = 80;
 
@@ -231,7 +232,7 @@ impl Node for BlockDn {
 
         Ok(vec![ChainTip {
             height: status.best_block_height,
-            hash: status.best_block_hash,
+            hash: BlockHash::from_str(&status.best_block_hash)?,
             branchlen: 0,
             status: ChainTipStatus::Active,
         }])

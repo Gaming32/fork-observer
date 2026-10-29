@@ -18,10 +18,10 @@ use corepc_client::bitcoin::blockdata::block::{Header, Version};
 use corepc_client::bitcoin::consensus::encode::serialize_hex;
 use corepc_client::bitcoin::hashes::Hash;
 use corepc_client::bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use fork_observer::db::{load_treeinfos, setup_db, update_miner};
 use fork_observer::types::Db;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 

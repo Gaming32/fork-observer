@@ -228,7 +228,7 @@ impl Node for Esplora {
                         let hash = self.block_hash(height).await?;
                         Ok(vec![ChainTip {
                             height,
-                            hash: hash.to_string(),
+                            hash,
                             branchlen: 0,
                             status: ChainTipStatus::Active,
                         }])

@@ -13,6 +13,7 @@ pub async fn sorted_interesting_heights(
     tree: &Tree,
     max_interesting_heights: usize,
     tip_heights: BTreeSet<u64>,
+    active_tip_heights: BTreeSet<u64>,
 ) -> Vec<u64> {
     let tree_locked = tree.lock().await;
     if tree_locked.0.node_count() == 0 {
@@ -46,24 +47,42 @@ pub async fn sorted_interesting_heights(
 
     // Combine the heights with multiple blocks with the tip_heights. The set
     // sorts and deduplicates them.
-    let interesting_heights_set: BTreeSet<u64> = heights_with_multiple_blocks
+    let mut interesting_heights_set: BTreeSet<u64> = heights_with_multiple_blocks
         .chain(tip_heights)
         .chain(std::iter::once(max_height))
         .collect();
 
-    // As, for example, testnet has a lot of forks we'd return many headers
-    // via the API (causing things to slow down), we allow limiting this with
-    // max_interesting_heights: keep the highest max_interesting_heights of
-    // them, in ascending order.
-    let mut interesting_heights: Vec<u64> = interesting_heights_set
-        .iter()
-        .rev()
-        .take(max_interesting_heights)
-        .copied()
-        .collect();
-    interesting_heights.reverse();
+    fn last_elements_of_set(mut set: BTreeSet<u64>, count: usize) -> BTreeSet<u64> {
+        if let Some(&max_value) = set.iter().nth_back(count) {
+            set.split_off(&max_value)
+        } else {
+            set
+        }
+    }
 
-    interesting_heights
+    let mut interesting_heights = if let Some(&last_height) = interesting_heights_set
+        .iter()
+        .nth_back(max_interesting_heights)
+    {
+        if let Some(&max_active) = active_tip_heights.iter().max()
+            && max_active < last_height
+        {
+            let above_max_active = interesting_heights_set.split_off(&max_active);
+            let mut left_interesting =
+                last_elements_of_set(interesting_heights_set, max_interesting_heights / 2);
+            let mut right_interesting =
+                last_elements_of_set(above_max_active, max_interesting_heights / 2);
+            left_interesting.append(&mut right_interesting);
+            left_interesting
+        } else {
+            interesting_heights_set.split_off(&last_height)
+        }
+    } else {
+        interesting_heights_set
+    };
+    interesting_heights.extend(active_tip_heights);
+
+    interesting_heights.into_iter().collect()
 }
 
 // We strip the tree of headers that aren't interesting to us.
@@ -71,10 +90,16 @@ pub async fn strip_tree(
     tree: &Tree,
     max_interesting_heights: usize,
     tip_heights: BTreeSet<u64>,
+    active_tip_heights: BTreeSet<u64>,
     countdown_height: Option<u64>,
 ) -> Vec<HeaderInfoJson> {
-    let interesting_heights =
-        sorted_interesting_heights(tree, max_interesting_heights, tip_heights).await;
+    let interesting_heights = sorted_interesting_heights(
+        tree,
+        max_interesting_heights,
+        tip_heights,
+        active_tip_heights,
+    )
+    .await;
 
     let tree_locked = tree.lock().await;
 
@@ -83,10 +108,11 @@ pub async fn strip_tree(
         |_, header| {
             // Always keep the blocks around a configured countdown height
             // (height-2 ..= height+2), regardless of max_interesting_heights.
-            if let Some(ch) = countdown_height {
-                if header.height + 2 >= ch && header.height <= ch.saturating_add(2) {
-                    return Some(header);
-                }
+            if let Some(ch) = countdown_height
+                && header.height + 2 >= ch
+                && header.height <= ch.saturating_add(2)
+            {
+                return Some(header);
             }
             // Keep some surrounding headers for the headers we find interesting.
             // interesting_heights is sorted, so a binary search finds a height
@@ -488,7 +514,7 @@ mod tests {
         let headers = linear_chain(20);
         let tree = tree_from(&headers);
 
-        let result = strip_tree(&tree, 1, BTreeSet::new(), Some(10)).await;
+        let result = strip_tree(&tree, 1, BTreeSet::new(), BTreeSet::new(), Some(10)).await;
         let heights: Vec<u64> = result.iter().map(|h| h.height).collect();
 
         for expected in 8..=12u64 {
@@ -505,7 +531,7 @@ mod tests {
         let headers = linear_chain(10);
         let tree = tree_from(&headers);
 
-        let result = strip_tree(&tree, 1, BTreeSet::new(), Some(1)).await;
+        let result = strip_tree(&tree, 1, BTreeSet::new(), BTreeSet::new(), Some(1)).await;
         let heights: Vec<u64> = result.iter().map(|h| h.height).collect();
 
         for expected in 0..=3u64 {
@@ -524,7 +550,7 @@ mod tests {
         let headers = linear_chain(5);
         let tree = tree_from(&headers);
 
-        let result = strip_tree(&tree, 1, BTreeSet::new(), Some(10)).await;
+        let result = strip_tree(&tree, 1, BTreeSet::new(), BTreeSet::new(), Some(10)).await;
         let heights: Vec<u64> = result.iter().map(|h| h.height).collect();
 
         for not_yet_mined in 8..=12u64 {
@@ -540,7 +566,7 @@ mod tests {
         let headers = linear_chain(20);
         let tree = tree_from(&headers);
 
-        let result = strip_tree(&tree, 3, BTreeSet::new(), None).await;
+        let result = strip_tree(&tree, 3, BTreeSet::new(), BTreeSet::new(), None).await;
         let mut heights: Vec<u64> = result.iter().map(|h| h.height).collect();
         heights.sort();
 
@@ -557,7 +583,7 @@ mod tests {
         headers.push(future_tip);
         let tree = tree_from(&headers);
 
-        let result = strip_tree(&tree, 10, BTreeSet::from([5]), None).await;
+        let result = strip_tree(&tree, 10, BTreeSet::from([5]), BTreeSet::new(), None).await;
         let by_height = |height: u64| result.iter().find(|h| h.height == height).unwrap();
         let first = result.iter().min_by_key(|h| h.height).unwrap();
 

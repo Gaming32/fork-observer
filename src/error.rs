@@ -7,6 +7,7 @@ use corepc_client::bitcoin::hashes::hex::parse::HexToArrayError;
 #[derive(Debug)]
 pub enum FetchError {
     TokioJoin(tokio::task::JoinError),
+    BlockHash(HexToArrayError),
     BitcoinCoreRPC(corepc_client::client_sync::Error),
     BitcoinCoreREST(String),
     BtcdRPC(JsonRPCError),
@@ -21,6 +22,7 @@ impl fmt::Display for FetchError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             FetchError::TokioJoin(e) => write!(f, "TokioJoin Error: {:?}", e),
+            FetchError::BlockHash(e) => write!(f, "Invalid BlockHash: {:?}", e),
             FetchError::BitcoinCoreRPC(e) => write!(f, "Bitcoin Core RPC Error: {}", e),
             FetchError::BtcdRPC(e) => write!(f, "btcd Error: {}", e),
             FetchError::BitcoinCoreREST(e) => write!(f, "Bitcoin Core REST Error: {}", e),
@@ -37,6 +39,7 @@ impl error::Error for FetchError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             FetchError::TokioJoin(ref e) => Some(e),
+            FetchError::BlockHash(ref e) => Some(e),
             FetchError::BitcoinCoreRPC(ref e) => Some(e),
             FetchError::BtcdRPC(ref e) => Some(e),
             FetchError::EsploraREST(ref e) => Some(e),
@@ -52,6 +55,12 @@ impl error::Error for FetchError {
 impl From<minreq::Error> for FetchError {
     fn from(e: minreq::Error) -> Self {
         FetchError::MinReq(e)
+    }
+}
+
+impl From<HexToArrayError> for FetchError {
+    fn from(e: HexToArrayError) -> Self {
+        FetchError::BlockHash(e)
     }
 }
 
@@ -148,19 +157,50 @@ pub enum ConfigError {
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ConfigError::CookieFileDoesNotExist => write!(f, "the .cookie file path set via rpc_cookie_file does not exist"),
-            ConfigError::NoBitcoinCoreRpcAuth => write!(f, "please specify a Bitcoin Core RPC .cookie file (option: 'rpc_cookie_file') or a rpc_user and rpc_password"),
+            ConfigError::CookieFileDoesNotExist => write!(
+                f,
+                "the .cookie file path set via rpc_cookie_file does not exist"
+            ),
+            ConfigError::NoBitcoinCoreRpcAuth => write!(
+                f,
+                "please specify a Bitcoin Core RPC .cookie file (option: 'rpc_cookie_file') or a rpc_user and rpc_password"
+            ),
             ConfigError::NoBtcdRpcAuth => write!(f, "no values for rpc_user and rpc_password"),
             ConfigError::NoNetworks => write!(f, "no networks defined in the configuration"),
-            ConfigError::UnknownImplementation => write!(f, "the node implementation defined in the config is not supported"),
-            ConfigError::DuplicateNodeId => write!(f, "a node id has been used multiple times in the same network"),
-            ConfigError::DuplicateNetworkId => write!(f, "a network id has been used multiple times"),
-            ConfigError::DuplicateNetworkSlug => write!(f, "a network slug has been used multiple times (slugs must be unique; set an explicit `slug` for one of the networks)"),
-            ConfigError::DuplicateRemoteNodeIdOffset => write!(f, "a node_id_offset has been used multiple times by remote fork-observers in the same network"),
-            ConfigError::InvalidRemoteForkObserver(e) => write!(f, "invalid remote fork-observer configuration: {}", e),
-            ConfigError::ActivityRetentionWithoutArchiveDir => write!(f, "an activity retention (retention_days or activity_retention_days) is configured, but [activity] has no archive_directory to archive expiring events to"),
-            ConfigError::TomlError(e) => write!(f, "the TOML in the configuration file could not be parsed: {}", e),
-            ConfigError::ReadError(e) => write!(f, "the configuration file could not be read: {}", e),
+            ConfigError::UnknownImplementation => write!(
+                f,
+                "the node implementation defined in the config is not supported"
+            ),
+            ConfigError::DuplicateNodeId => write!(
+                f,
+                "a node id has been used multiple times in the same network"
+            ),
+            ConfigError::DuplicateNetworkId => {
+                write!(f, "a network id has been used multiple times")
+            }
+            ConfigError::DuplicateNetworkSlug => write!(
+                f,
+                "a network slug has been used multiple times (slugs must be unique; set an explicit `slug` for one of the networks)"
+            ),
+            ConfigError::DuplicateRemoteNodeIdOffset => write!(
+                f,
+                "a node_id_offset has been used multiple times by remote fork-observers in the same network"
+            ),
+            ConfigError::InvalidRemoteForkObserver(e) => {
+                write!(f, "invalid remote fork-observer configuration: {}", e)
+            }
+            ConfigError::ActivityRetentionWithoutArchiveDir => write!(
+                f,
+                "an activity retention (retention_days or activity_retention_days) is configured, but [activity] has no archive_directory to archive expiring events to"
+            ),
+            ConfigError::TomlError(e) => write!(
+                f,
+                "the TOML in the configuration file could not be parsed: {}",
+                e
+            ),
+            ConfigError::ReadError(e) => {
+                write!(f, "the configuration file could not be read: {}", e)
+            }
             ConfigError::AddrError(e) => write!(f, "the address could not be parsed: {}", e),
         }
     }

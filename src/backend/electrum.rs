@@ -123,7 +123,7 @@ impl Node for Electrum {
         if let Some(notification) = last_header_notification {
             return Ok(vec![ChainTip {
                 height: notification.height as u64,
-                hash: notification.header.block_hash().to_string(),
+                hash: notification.header.block_hash(),
                 branchlen: 0,
                 status: ChainTipStatus::Active,
             }]);
@@ -136,7 +136,7 @@ impl Node for Electrum {
         match client.block_headers_subscribe() {
             Ok(response) => Ok(vec![ChainTip {
                 height: response.height as u64,
-                hash: response.header.block_hash().to_string(),
+                hash: response.header.block_hash(),
                 branchlen: 0,
                 status: ChainTipStatus::Active,
             }]),

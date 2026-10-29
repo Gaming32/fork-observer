@@ -14,23 +14,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 use tokio::task;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use fork_observer::activity::{self, Activity, ActivityEvent, ActivityEventKind};
 use fork_observer::api;
 use fork_observer::cache::{
-    active_tip_heights, insert_new_headers_into_tree, is_node_reachable, load_node_version,
-    populate_cache, send_activity, tip_heights, update_cache, update_header_tree_cache,
-    CacheUpdate, MINER_UNKNOWN,
+    CacheUpdate, MINER_UNKNOWN, active_tip_heights, insert_new_headers_into_tree,
+    is_node_reachable, load_node_version, populate_cache, send_activity, tip_heights, update_cache,
+    update_header_tree_cache,
 };
 use fork_observer::config;
 use fork_observer::db;
 use fork_observer::error::{DbError, MainError};
 use fork_observer::headertree;
 use fork_observer::remote_forkobserver;
-use fork_observer::types::{Caches, ChainTip, Db, HeaderInfo, NetworkJson, Tree};
+use fork_observer::types::{Caches, ChainTip, ChainTipStatus, Db, NetworkJson, Tree};
 
 async fn startup() -> Result<(config::Config, Db, Caches, Option<Activity>), MainError> {
     let config: config::Config = match config::load_config() {
@@ -228,7 +228,7 @@ async fn main() -> Result<(), MainError> {
             };
             let lagging_state = lagging_state.clone();
 
-            let mut last_tips: Vec<ChainTip> = vec![];
+            let mut last_tips = BTreeSet::<ChainTip>::new();
             task::spawn(async move {
                 // Try to load the node version an update the cache with it.
                 let version = load_node_version(node.clone(), &network.name).await;
@@ -243,6 +243,7 @@ async fn main() -> Result<(), MainError> {
                 )
                 .await;
 
+                let mut more_headers_needed = false;
                 let mut first_iteration = true;
                 loop {
                     // We specifically wait at the beginning of the loop, as we
@@ -266,7 +267,7 @@ async fn main() -> Result<(), MainError> {
                         );
                         sleep(query_interval).await;
                     }
-                    let mut tips = match node.tips().await {
+                    let tips = match node.tips().await {
                         Ok(tips) => {
                             if !is_node_reachable(&caches_clone, network.id, node.info().id).await {
                                 if let Some(ref activity_tx) = node_activity_tx {
@@ -288,7 +289,7 @@ async fn main() -> Result<(), MainError> {
                                 )
                                 .await;
                             }
-                            tips
+                            tips.into_iter().collect()
                         }
                         Err(e) => {
                             error!(
@@ -322,29 +323,24 @@ async fn main() -> Result<(), MainError> {
                         }
                     };
 
-                    // For example, btcd doesn't gurantee the order of the chain
-                    // tips returned. This means, while they are equal, the order
-                    // can differ and we will treat them as unequal.
-                    tips.sort();
-
-                    if last_tips != tips {
-                        let (new_headers, miners_needed): (Vec<HeaderInfo>, Vec<BlockHash>) =
-                            match node
-                                .new_headers(&tips, &tree_clone, network.min_fork_height)
-                                .await
-                            {
-                                Ok(headers) => headers,
-                                Err(e) => {
-                                    error!(
+                    if last_tips != tips || more_headers_needed {
+                        let (new_headers, miners_needed, more_headers) = match node
+                            .new_headers(&tips, &tree_clone, network.min_fork_height)
+                            .await
+                        {
+                            Ok(headers) => headers,
+                            Err(e) => {
+                                error!(
                                     "Could not fetch headers from {} on network '{}' (id={}): {}",
                                     node.info(),
                                     network.name,
                                     network.id,
                                     e
                                 );
-                                    continue;
-                                }
-                            };
+                                continue;
+                            }
+                        };
+                        more_headers_needed = more_headers;
 
                         // Identify the miner of the new header(s)
                         for hash in miners_needed.iter() {
@@ -373,7 +369,12 @@ async fn main() -> Result<(), MainError> {
                                     node.info()
                                 ),
                                 Err(e) => {
-                                    error!("Could not write new headers for network '{}' by node {} to database: {}", network.name, node.info(), e);
+                                    error!(
+                                        "Could not write new headers for network '{}' by node {} to database: {}",
+                                        network.name,
+                                        node.info(),
+                                        e
+                                    );
                                     return MainError::Db(e);
                                 }
                             }
@@ -393,7 +394,7 @@ async fn main() -> Result<(), MainError> {
                             network.id,
                             CacheUpdate::NodeTips {
                                 node_id: node.info().id,
-                                tips: tips.clone(),
+                                tips: tips.iter().copied().collect(),
                             },
                             &cache_changed_tx_cloned,
                         )
@@ -420,6 +421,9 @@ async fn main() -> Result<(), MainError> {
                                 &tree_clone,
                                 &caches_clone,
                                 tips.iter().map(|t| t.height),
+                                tips.iter()
+                                    .filter(|t| t.status == ChainTipStatus::Active)
+                                    .map(|t| t.height),
                                 &cache_changed_tx_cloned,
                             )
                             .await;
@@ -451,11 +455,13 @@ async fn main() -> Result<(), MainError> {
         task::spawn(async move {
             sleep(Duration::from_secs(5 * 60)).await;
 
-            let tip_heights: BTreeSet<u64> = tip_heights(network_clone.id, &caches_clone).await;
+            let (tip_heights, active_tip_heights) =
+                tip_heights(network_clone.id, &caches_clone).await;
             let interesting_heights = headertree::sorted_interesting_heights(
                 &tree_clone,
                 network_clone.max_interesting_heights,
                 tip_heights,
+                active_tip_heights,
             )
             .await;
 
@@ -530,7 +536,10 @@ async fn main() -> Result<(), MainError> {
                         match tree_locked.1.get(hash) {
                             Some(idx) => *idx,
                             None => {
-                                error!("Block hash {} not (yet) present in tree for network: {}. Skipping identification...", hash, network_clone.name);
+                                error!(
+                                    "Block hash {} not (yet) present in tree for network: {}. Skipping identification...",
+                                    hash, network_clone.name
+                                );
                                 continue;
                             }
                         }

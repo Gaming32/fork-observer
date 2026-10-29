@@ -23,6 +23,7 @@ use async_trait::async_trait;
 use corepc_client::bitcoin::{BlockHash, Transaction};
 use log::debug;
 use std::cmp::max;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::time::Duration;
 
@@ -87,10 +88,10 @@ pub trait Node: Sync {
 
     async fn new_headers(
         &self,
-        tips: &[ChainTip],
+        tips: &BTreeSet<ChainTip>,
         tree: &Tree,
         min_fork_height: u64,
-    ) -> Result<(Vec<HeaderInfo>, Vec<BlockHash>), FetchError> {
+    ) -> Result<(Vec<HeaderInfo>, Vec<BlockHash>, bool), FetchError> {
         let mut new_headers: Vec<HeaderInfo> = Vec::new();
         let mut headers_needing_miners: Vec<BlockHash> = Vec::new();
 
@@ -104,7 +105,7 @@ pub trait Node: Sync {
         }
         new_headers.append(&mut active_new_headers);
 
-        let mut nonactive_new_headers: Vec<HeaderInfo> = self
+        let (mut nonactive_new_headers, more_headers) = self
             .new_nonactive_headers(tips, tree, min_fork_height)
             .await?;
         // We want miners for all headers in a non-active chain.
@@ -112,12 +113,12 @@ pub trait Node: Sync {
             headers_needing_miners.push(h.header.block_hash());
         }
         new_headers.append(&mut nonactive_new_headers);
-        Ok((new_headers, headers_needing_miners))
+        Ok((new_headers, headers_needing_miners, more_headers))
     }
 
     async fn new_active_headers(
         &self,
-        tips: &[ChainTip],
+        tips: &BTreeSet<ChainTip>,
         tree: &Tree,
         min_fork_height: u64,
     ) -> Result<Vec<HeaderInfo>, FetchError> {
@@ -131,7 +132,7 @@ pub trait Node: Sync {
             None => {
                 return Err(FetchError::DataError(String::from(
                     "No 'active' chain tip returned",
-                )))
+                )));
             }
         };
         const STEP_SIZE: i64 = 2000;
@@ -213,25 +214,26 @@ pub trait Node: Sync {
 
     async fn new_nonactive_headers(
         &self,
-        tips: &[ChainTip],
+        tips: &BTreeSet<ChainTip>,
         tree: &Tree,
         min_fork_height: u64,
-    ) -> Result<Vec<HeaderInfo>, FetchError> {
+    ) -> Result<(Vec<HeaderInfo>, bool), FetchError> {
         let mut new_headers: Vec<HeaderInfo> = Vec::new();
 
         // Since some implementations can't fetch headers by hash (e.g. Electrum),
         // we can return early from them here. We can only fetch non-active headers
         // by hash.
         if self.capabilities().header_fetch_type == HeaderFetchType::Height {
-            return Ok(new_headers);
+            return Ok((new_headers, false));
         }
 
+        let mut found_new_headers = 0u8;
         for inactive_tip in tips
             .iter()
             .filter(|tip| tip.height - tip.branchlen as u64 > min_fork_height)
             .filter(|tip| tip.status != ChainTipStatus::Active)
         {
-            let mut next_header = inactive_tip.block_hash();
+            let mut next_header = inactive_tip.hash;
             for i in 0..=inactive_tip.branchlen {
                 {
                     let tree_locked = tree.lock().await;
@@ -240,6 +242,7 @@ pub trait Node: Sync {
                     }
                 }
 
+                found_new_headers = found_new_headers.saturating_add(1);
                 let height = inactive_tip.height - i as u64;
                 debug!(
                     "loading non-active-chain header: hash={}, height={}",
@@ -264,8 +267,12 @@ pub trait Node: Sync {
                     miner: DEFAULT_EMPTY_MINER.to_string(),
                 });
             }
+            if found_new_headers > 100 {
+                debug!("Too many inactive headers, pausing for a bit");
+                return Ok((new_headers, true));
+            }
         }
-        Ok(new_headers)
+        Ok((new_headers, false))
     }
 }
 

@@ -4,8 +4,8 @@ use std::str::FromStr;
 use crate::error::JsonRPCError;
 use crate::types::ChainTip;
 
-use corepc_client::bitcoin::blockdata::block::Header;
 use corepc_client::bitcoin::Block;
+use corepc_client::bitcoin::blockdata::block::Header;
 
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -119,7 +119,10 @@ pub fn btcd_blockheader(
     if header_hex.len() != BITCOIN_BLOCK_HEADER_HEX_LENGTH {
         return Err(JsonRPCError::RpcUnexpectedResponseContents(format!(
             "JSON RPC response for request '{}' has not the correct length for a Bitcoin block header. Expected {} hex chars but got {} chars. Content: {}",
-            METHOD, BITCOIN_BLOCK_HEADER_HEX_LENGTH, header_hex.len(), header_hex
+            METHOD,
+            BITCOIN_BLOCK_HEADER_HEX_LENGTH,
+            header_hex.len(),
+            header_hex
         )));
     }
 
@@ -181,7 +184,10 @@ pub fn btcd_blockhash(
     if hash_hex.len() != BITCOIN_BLOCK_HASH_HEX_LENGTH {
         return Err(JsonRPCError::RpcUnexpectedResponseContents(format!(
             "JSON RPC response for request '{}' has not the correct length for a Bitcoin block hash. Expected {} hex chars but got {} chars. Content: {}",
-            METHOD, BITCOIN_BLOCK_HEADER_HEX_LENGTH, hash_hex.len(), hash_hex
+            METHOD,
+            BITCOIN_BLOCK_HEADER_HEX_LENGTH,
+            hash_hex.len(),
+            hash_hex
         )));
     }
 

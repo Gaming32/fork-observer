@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use std::str::FromStr;
 use tokio::sync::broadcast::Sender;
 use tokio_stream::wrappers::BroadcastStream;
-use warp::{sse::Event, Filter};
+use warp::{Filter, sse::Event};
 
 pub fn build_routes(
     network_infos: &[NetworkJson],
@@ -20,7 +20,7 @@ pub fn build_routes(
     caches: &Caches,
     cache_changed_tx_warp: Sender<u32>,
     activity: &Option<Activity>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+) -> impl Filter<Extract = impl warp::Reply + use<>, Error = warp::Rejection> + Clone + use<> {
     let www_dir = warp::get()
         .and(warp::path("static"))
         .and(warp::fs::dir(config.www_path.clone()));
@@ -312,14 +312,13 @@ pub async fn block_response(
             // reintroduce an entry that was concurrently pruned).
             {
                 let mut caches_locked = caches.lock().await;
-                if let Some(cache) = caches_locked.get_mut(&network_id) {
-                    if cache
+                if let Some(cache) = caches_locked.get_mut(&network_id)
+                    && cache
                         .stale_blocks
                         .iter()
                         .any(|b| b.hash == block_hash.to_string())
-                    {
-                        cache.block_cache.insert(block_hash, fetched.clone());
-                    }
+                {
+                    cache.block_cache.insert(block_hash, fetched.clone());
                 }
             }
 

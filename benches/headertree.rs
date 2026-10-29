@@ -24,12 +24,10 @@ use std::sync::Arc;
 use corepc_client::bitcoin::blockdata::block::{Header, Version};
 use corepc_client::bitcoin::hashes::Hash;
 use corepc_client::bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use fork_observer::blake2b::ParsedHeader;
 use fork_observer::cache::{MAX_FORKS_IN_CACHE, MAX_STALE_BLOCKS};
-use fork_observer::headertree::{
-    recent_forks, sorted_interesting_heights, stale_blocks, strip_tree,
-};
+use fork_observer::headertree::{recent_forks, stale_blocks};
 use fork_observer::types::{HeaderInfo, Tree, TreeInfo};
 use petgraph::graph::{DiGraph, NodeIndex};
 use tokio::runtime::Runtime;
@@ -137,47 +135,6 @@ fn sample_size_for(size: usize) -> usize {
     }
 }
 
-fn bench_sorted_interesting_heights(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
-    let mut group = c.benchmark_group("sorted_interesting_heights");
-    for &size in TREE_SIZES {
-        let tree = synthetic_tree(size);
-        group.throughput(Throughput::Elements(size as u64));
-        group.sample_size(sample_size_for(size));
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
-            b.to_async(&rt).iter(|| async {
-                sorted_interesting_heights(&tree, usize::MAX, tip_heights(size)).await
-            })
-        });
-    }
-    group.finish();
-}
-
-fn bench_strip_tree(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
-    let mut group = c.benchmark_group("strip_tree");
-    for &size in TREE_SIZES {
-        let tree = synthetic_tree(size);
-        for &max_interesting_heights in MAX_INTERESTING_HEIGHTS {
-            group.throughput(Throughput::Elements(size as u64));
-            group.sample_size(sample_size_for(size));
-            group.bench_with_input(
-                BenchmarkId::new(
-                    format!("max_interesting_heights_{}", max_interesting_heights),
-                    size,
-                ),
-                &size,
-                |b, &size| {
-                    b.to_async(&rt).iter(|| async {
-                        strip_tree(&tree, max_interesting_heights, tip_heights(size), None).await
-                    })
-                },
-            );
-        }
-    }
-    group.finish();
-}
-
 fn bench_stale_blocks(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     let mut group = c.benchmark_group("stale_blocks");
@@ -208,11 +165,5 @@ fn bench_recent_forks(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_sorted_interesting_heights,
-    bench_strip_tree,
-    bench_stale_blocks,
-    bench_recent_forks
-);
+criterion_group!(benches, bench_stale_blocks, bench_recent_forks);
 criterion_main!(benches);

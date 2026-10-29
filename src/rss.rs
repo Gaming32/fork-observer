@@ -1,6 +1,6 @@
 use std::fmt;
-use warp::http::Response;
 use warp::Filter;
+use warp::http::Response;
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -177,8 +177,7 @@ impl Item {
             title: format!("Node '{}' is lagging behind", node.display_name()),
             description: format!(
                 "The node's active tip is on height {}, while other nodes consider a block with a height at least {} blocks higher their active tip. The node might still be synchronizing with the network or stuck.",
-                height,
-                THREASHOLD_NODE_LAGGING,
+                height, THREASHOLD_NODE_LAGGING,
             ),
             guid: format!("lagging-node-{}-on-{}", node.display_name(), height),
         }
@@ -195,7 +194,10 @@ impl Item {
                 "The RPC server of this node is not reachable. The node might be offline or there might be other networking issues. The nodes tip data was last updated at timestamp {} (zero indicates never).",
                 node.last_changed_timestamp,
             ),
-            guid: format!("unreachable-node-{}-last-{}", node.id, node.last_changed_timestamp),
+            guid: format!(
+                "unreachable-node-{}-last-{}",
+                node.id, node.last_changed_timestamp
+            ),
         }
     }
 }

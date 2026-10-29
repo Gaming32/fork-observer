@@ -168,7 +168,8 @@ pub struct RemoteForkObserver {
 impl fmt::Display for TomlNetwork {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
-            f,"Network (id={}, description='{}', name='{}', min_fork_height={}, max_interesting_heights={}, nodes={:?})",
+            f,
+            "Network (id={}, description='{}', name='{}', min_fork_height={}, max_interesting_heights={}, nodes={:?})",
             self.id,
             self.description,
             self.name,
@@ -198,7 +199,8 @@ struct TomlNode {
 impl fmt::Display for TomlNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
-            f,"Node (id={}, description='{}', name='{}', rpc_host='{}', rpc_port={}, rpc_user='{}', rpc_password='***', rpc_cookie_file={:?}, use_rest={}, use_waitfornewblock={}, implementation='{}')",
+            f,
+            "Node (id={}, description='{}', name='{}', rpc_host='{}', rpc_port={}, rpc_user='{}', rpc_password='***', rpc_cookie_file={:?}, use_rest={}, use_waitfornewblock={}, implementation='{}')",
             self.id,
             self.description,
             self.name,
@@ -207,7 +209,8 @@ impl fmt::Display for TomlNode {
             self.rpc_user.as_ref().unwrap_or(&"".to_string()),
             self.rpc_cookie_file,
             self.use_rest.unwrap_or(DEFAULT_USE_REST),
-            self.use_waitfornewblock.unwrap_or(DEFAULT_USE_WAITFORNEWBLOCK),
+            self.use_waitfornewblock
+                .unwrap_or(DEFAULT_USE_WAITFORNEWBLOCK),
             self.implementation.as_ref().unwrap_or(&"".to_string()),
         )
     }
@@ -579,7 +582,9 @@ mod tests {
         use std::env;
 
         const FILENAME_EXAMPLE_CONFIG: &str = "config.toml.example";
-        env::set_var(ENVVAR_CONFIG_FILE, FILENAME_EXAMPLE_CONFIG);
+        unsafe {
+            env::set_var(ENVVAR_CONFIG_FILE, FILENAME_EXAMPLE_CONFIG);
+        }
         let cfg = load_config().unwrap_or_else(|_| {
             panic!(
                 "We should be able to load the {} file.",
@@ -616,9 +621,10 @@ mod tests {
         )
         .expect("node without use_waitfornewblock should parse");
         assert_eq!(node.use_waitfornewblock, None);
-        assert!(node
-            .use_waitfornewblock
-            .unwrap_or(DEFAULT_USE_WAITFORNEWBLOCK));
+        assert!(
+            node.use_waitfornewblock
+                .unwrap_or(DEFAULT_USE_WAITFORNEWBLOCK)
+        );
 
         // Honors an explicit `false`.
         let node: TomlNode = toml::from_str(

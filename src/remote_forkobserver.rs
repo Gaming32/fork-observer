@@ -13,7 +13,7 @@ use corepc_client::bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 use tokio::task;
-use tokio::time::{interval, Duration, MissedTickBehavior};
+use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use crate::config::{Network, RemoteForkObserver};
 use crate::db;
@@ -248,6 +248,7 @@ async fn poll_once(
             network,
             tree,
             caches,
+            std::iter::empty(),
             std::iter::empty(),
             cache_changed_tx,
         )

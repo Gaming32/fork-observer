@@ -270,7 +270,7 @@ impl Node for BitcoinCoreNode {
                 return Err(FetchError::BitcoinCoreREST(format!(
                     "could not deserialize REST header response: {}",
                     e
-                )))
+                )));
             }
         };
 
@@ -297,8 +297,8 @@ mod client {
         impl_client_v17__get_block_hash, impl_client_v17__get_chain_tips,
         impl_client_v17__get_network_info, impl_client_v29__get_block,
     };
-    use jsonrpc::base64::prelude::BASE64_STANDARD;
     use jsonrpc::base64::Engine;
+    use jsonrpc::base64::prelude::BASE64_STANDARD;
     use jsonrpc::bitreq_http::HttpError;
     use log::debug;
     use serde_json::to_value as into_json;
