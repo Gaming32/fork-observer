@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS headers (
 )
 ";
 
+const CREATE_STMT_INDEX_HEADERS: &str = "
+CREATE INDEX IF NOT EXISTS idx_headers_network_height ON headers(network, height ASC);
+";
+
 // Filtering on the network as well lets SQLite use the primary key index
 // (network, hash, header) instead of scanning the whole table.
 const UPDATE_STMT_HEADER_MINER: &str = "
@@ -46,6 +50,7 @@ WHERE
 
 pub async fn setup_db(db: Db) -> Result<(), DbError> {
     db.lock().await.execute(CREATE_STMT_TABLE_HEADERS, [])?;
+    db.lock().await.execute(CREATE_STMT_INDEX_HEADERS, [])?;
     Ok(())
 }
 
