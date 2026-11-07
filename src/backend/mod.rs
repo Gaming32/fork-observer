@@ -267,10 +267,10 @@ pub trait Node: Sync {
                     miner: DEFAULT_EMPTY_MINER.to_string(),
                 });
             }
-            if found_new_headers > 100 {
-                debug!("Too many inactive headers, pausing for a bit");
-                return Ok((new_headers, true));
-            }
+            // if found_new_headers > 100 {
+            //     debug!("Too many inactive headers, pausing for a bit");
+            //     return Ok((new_headers, true));
+            // }
         }
         Ok((new_headers, false))
     }
