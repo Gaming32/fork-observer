@@ -23,9 +23,9 @@ use tokio::time::{Duration, sleep};
 use fork_observer::activity::{self, Activity, ActivityEvent, ActivityEventKind};
 use fork_observer::api;
 use fork_observer::cache::{
-    CacheUpdate, MINER_UNKNOWN, active_tip_heights, insert_new_headers_into_tree,
-    is_node_reachable, load_node_version, populate_cache, send_activity, tip_heights, update_cache,
-    update_header_tree_cache,
+    CacheUpdate, MINER_UNKNOWN, VERSION_UNKNOWN, active_tip_heights, insert_new_headers_into_tree,
+    is_node_reachable, load_node_version, node_version, populate_cache, send_activity, tip_heights,
+    update_cache, update_header_tree_cache,
 };
 use fork_observer::config;
 use fork_observer::db;
@@ -33,6 +33,9 @@ use fork_observer::error::{DbError, MainError};
 use fork_observer::headertree;
 use fork_observer::remote_forkobserver;
 use fork_observer::types::{Caches, ChainTip, ChainTipStatus, Db, NetworkJson, Tree};
+
+/// How often each node's version is re-requested after the initial load.
+const NODE_VERSION_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 async fn startup() -> Result<(config::Config, Db, Caches, Option<Activity>), MainError> {
     let config: config::Config = match config::load_config() {
@@ -231,20 +234,43 @@ async fn main() -> Result<(), MainError> {
             let lagging_state = lagging_state.clone();
 
             let mut last_tips = BTreeSet::<ChainTip>::new();
-            task::spawn(async move {
-                // Try to load the node version an update the cache with it.
-                let version = load_node_version(node.clone(), &network.name).await;
-                update_cache(
-                    &caches_clone,
-                    network.id,
-                    CacheUpdate::NodeVersion {
-                        node_id: node.info().id,
-                        version,
-                    },
-                    &cache_changed_tx_cloned,
-                )
-                .await;
+            // Load the node version on startup and refresh it periodically,
+            // so that node upgrades show up without restarting fork-observer.
+            // This runs in its own task so that slow or failing version
+            // requests don't delay fetching tips and headers.
+            {
+                let node = node.clone();
+                let network_id = network.id;
+                let network_name = network.name.clone();
+                let caches = caches.clone();
+                let cache_changed_tx = cache_changed_tx.clone();
+                task::spawn(async move {
+                    loop {
+                        let version = load_node_version(node.clone(), &network_name).await;
+                        // Don't overwrite a known version with VERSION_UNKNOWN
+                        // (e.g. when the node is temporarily unreachable), and
+                        // skip no-op updates to avoid needless cache_changed
+                        // notifications.
+                        if version != VERSION_UNKNOWN
+                            && node_version(&caches, network_id, node.info().id).await != version
+                        {
+                            update_cache(
+                                &caches,
+                                network_id,
+                                CacheUpdate::NodeVersion {
+                                    node_id: node.info().id,
+                                    version,
+                                },
+                                &cache_changed_tx,
+                            )
+                            .await;
+                        }
+                        sleep(NODE_VERSION_REFRESH_INTERVAL).await;
+                    }
+                });
+            }
 
+            task::spawn(async move {
                 let mut more_headers_needed = false;
                 let mut first_iteration = true;
                 loop {

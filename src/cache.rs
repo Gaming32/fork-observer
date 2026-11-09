@@ -255,6 +255,18 @@ pub async fn is_node_reachable(caches: &Caches, network_id: u32, node_id: u32) -
         .reachable
 }
 
+pub async fn node_version(caches: &Caches, network_id: u32, node_id: u32) -> String {
+    let locked_cache = caches.lock().await;
+    locked_cache
+        .get(&network_id)
+        .expect("this network should be in the caches")
+        .node_data
+        .get(&node_id)
+        .expect("this node should be in the network cache")
+        .version
+        .clone()
+}
+
 pub async fn update_cache(
     caches: &Caches,
     network_id: u32,
