@@ -298,10 +298,21 @@ text.block-miner {
  font-size: 10px;
 }
 
-text.block-miner, use.block-miner-logo-bg {
+text.block-miner {
   stroke: var(--surface-bg);
   stroke-width: 6px;
+  /* round, as mitered corners shoot out in spikes at sharp glyph corners (the
+     top of an A) that reach well past the halo, up into the block's edge */
+  stroke-linejoin: round;
   paint-order: stroke fill;
+}
+
+image.block-miner-logo-bg {
+  filter: url(#miner-logo-halo);
+}
+
+.miner-logo-halo-color {
+  flood-color: var(--surface-bg);
 }
 
 .block {

@@ -3,6 +3,11 @@ const MAX_USIZE = 18446744073709551615;
 const BLOCK_SIZE = 50
 const BLOCK_DEPTH = 9 // depth of the 3D extrusion (offset toward the top-right)
 const MIN_DIFFICULTY = 1
+// pool logo next to the miner name: its size, the space between it and the name,
+// and how far the halo behind it reaches out (same as the stroke around the text)
+const MINER_LOGO_SIZE = 12
+const MINER_LOGO_GAP = 3
+const MINER_LOGO_HALO = 3
 
 const orientationSelect = d3.select("#orientation")
 
@@ -201,6 +206,23 @@ function log_layout_shift(root_node, htoi) {
 
 let svg = d3
     .select("#drawing-area")
+
+// halo behind the pool logos, the counterpart of the stroke around the miner text:
+// the logo's shape grown by a few pixels and filled with the background color. An
+// <image> can't be stroked (its SVG is rendered in isolation), hence the filter.
+{
+  let halo = svg.append("defs").append("filter")
+    .attr("id", "miner-logo-halo")
+    // filters blend in linearRGB by default, which shifts the flood color off from
+    // the background it has to match
+    .attr("color-interpolation-filters", "sRGB")
+    .attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%")
+  halo.append("feMorphology")
+    .attr("in", "SourceAlpha").attr("operator", "dilate").attr("radius", MINER_LOGO_HALO)
+    .attr("result", "grown")
+  halo.append("feFlood").attr("class", "miner-logo-halo-color")
+  halo.append("feComposite").attr("in2", "grown").attr("operator", "in")
+}
 
 let initialDraw = true
 
@@ -550,31 +572,50 @@ function miner_label(miner) {
   return miner.length > 14 ? miner.substring(0, 14) + "…" : miner
 }
 
-// builds the miner tag - a small background box (rect) behind the miner text - on
-// each block group in `sel`. The group carries the rotation; the rect is sized to
-// the text in a later layout pass (recalc_miner_boxes).
+// builds the miner tag - the pool's logo followed by its name - on each block group
+// in `sel`. The logo is positioned next to the text in a later layout pass
+// (recalc_miner_boxes), once the text can be measured.
 function append_miner_label(sel) {
   let group = sel.append("g").attr("class", "block-miner-group")
-  // const iconUrl = d => `/icons/${d.data.data.miner.replaceAll(/[^a-z0-9]/ig, '').toLowerCase()}.svg`
-  // group
-  //     .append("use")
-  //     .attr("width", 16)
-  //     .attr("height", 16)
-  //     .classed("block-miner-logo-bg", true)
-  //     .attr("href", iconUrl)
+  // a copy of the logo behind it, turned into a halo by the #miner-logo-halo filter,
+  // like the stroke around the text, so the logo stays readable on top of the links
+  for (let cls of ["block-miner-logo-bg", "block-miner-logo"]) {
+    group.append("image")
+      .classed(cls, true)
+      .attr("width", MINER_LOGO_SIZE)
+      .attr("height", MINER_LOGO_SIZE)
+      .on("error", miner_logo_error)
+  }
   group.append("text")
     .classed("block-pool-name", true)
     .attr("dx", o.miner_dx)
     .attr("dy", o.miner_dy)
     .classed("block-miner", true)
     .text(d => miner_label(d.data.data.miner))
-  // group
-  //     .append("use")
-  //     .attr("width", 16)
-  //     .attr("height", 16)
-  //     .classed("block-miner-logo", true)
-  //     .attr("href", iconUrl)
+  group.selectAll("image").each(function (d) { set_miner_logo(this, d.data.data.miner) })
   return group
+}
+
+// the logo of a pool is looked up by the same slug mempool uses: the pool name
+// with everything but letters and digits removed, lower-cased
+function miner_logo_url(miner) {
+  return "icons/" + miner.replaceAll(/[^a-z0-9]/ig, "").toLowerCase() + ".svg"
+}
+
+// point the logo <image> at the pool's logo. Only touches the element when the pool
+// changed, so the image isn't reloaded on every redraw.
+function set_miner_logo(image, miner) {
+  if (image.dataset.miner === miner) return
+  image.dataset.miner = miner
+  image.dataset.fallback = ""
+  image.setAttribute("href", miner_logo_url(miner))
+}
+
+// pools without a logo of their own get the generic one, as on mempool
+function miner_logo_error() {
+  if (this.dataset.fallback) return
+  this.dataset.fallback = "1"
+  this.setAttribute("href", "icons/default.svg")
 }
 
 function preprocess_data(data) {
@@ -980,6 +1021,12 @@ function draw(opts) {
           let label = miner_label(d.data.data.miner)
           if (this.textContent != label) this.textContent = label
         })
+        // (selectAll doesn't hand the block's current data down to the images, so
+        // the miner is taken from the block itself)
+        with_miner.each(function (d) {
+          this.querySelectorAll(".block-miner-group image")
+            .forEach(image => set_miner_logo(image, d.data.data.miner))
+        })
 
         update.selectAll(".block-pool-name")
           .attr("dy", o.miner_dy)
@@ -1294,14 +1341,43 @@ function recalc_miner_boxes() {
   // all reads before all writes: a read after a write forces the browser to lay
   // out the whole SVG again, once per block
   const groups = blockLayer.selectAll(".block-miner-group")
-  const boxes = groups.nodes().map(el => el.querySelector("text.block-miner").getBBox())
-  // const logoBoxes = groups.nodes().map(el => el.querySelector("use.block-miner-logo").getBBox())
-  // groups.select("text.block-miner")
-  //   .attr("dx", (d, i) => o.miner_dx + (logoBoxes[i].width ? 9.5 : 0))
-  //   .attr("dy", (d, i) => o.miner_dy + (logoBoxes[i].height ? logoBoxes[i].height / 2 - boxes[i].height / 2 + 1 : 0))
-  // groups.selectAll("use.block-miner-logo, use.block-miner-logo-bg")
-  //   .attr("x", (d, i) => boxes[i].x - (logoBoxes[i].width ? 9.5 : 0))
-  //   .attr("y", (d, i) => boxes[i].y + 1)
+  const texts = groups.nodes().map(el => el.querySelector("text.block-miner"))
+  // where the middle of the text's box (which spans ascenders to descenders) lies
+  // relative to its baseline. Measured against the dy the text has right now, as an
+  // earlier run of this may have moved it.
+  // the text's box (which spans ascenders to descenders) relative to its baseline.
+  // Measured against the dy the text has right now, as an earlier run of this may
+  // have moved it.
+  const boxes = texts.map(t => {
+    let bb = t.getBBox()
+    let dy = parseFloat(t.getAttribute("dy")) || 0
+    return { top: bb.y - dy, mid: bb.y + bb.height / 2 - dy }
+  })
+  const widths = texts.map(t => t.getComputedTextLength())
+  // The logo and the name are laid out as one row, centered where the name alone
+  // used to be. The text is anchored at its middle, so it moves right by half of
+  // what the logo takes up; the logo sits left of the text's (new) start.
+  const logo_w = MINER_LOGO_SIZE + MINER_LOGO_GAP
+  const logo_x = (i) => o.miner_dx - (logo_w + widths[i]) / 2
+  // vertically the logo is centered on the text (offsets from the baseline)
+  const logo_top = (i) => boxes[i].mid - MINER_LOGO_SIZE / 2
+  // The halos around the logo and the text paint over whatever is behind them, the
+  // block's bottom edge included when the row sits too close to it. So the row
+  // moves down just far enough for both halos to clear the edge (and its 1px
+  // outline, which reaches half a pixel past it), but never up.
+  const min_top = BLOCK_SIZE / 2 + 1 + MINER_LOGO_HALO
+  const shift = (i) => Math.max(0,
+    min_top - (o.miner_dy + Math.min(logo_top(i), boxes[i].top)))
+  const baseline = (i) => o.miner_dy + shift(i)
+  const logo_y = (i) => baseline(i) + logo_top(i)
+  groups.select("text.block-miner")
+    .attr("dx", o.miner_dx + logo_w / 2)
+    .attr("dy", (d, i) => baseline(i))
+  groups.each(function (d, i) {
+    d3.select(this).selectAll("image")
+      .attr("x", logo_x(i))
+      .attr("y", logo_y(i))
+  })
 }
 
 // measure each tip-status label and stack the boxes just off the block. Runs on draw
