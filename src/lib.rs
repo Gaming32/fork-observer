@@ -13,6 +13,7 @@ pub mod db;
 pub mod error;
 pub mod headertree;
 pub mod jsonrpc;
+pub mod pool_identification;
 pub mod remote_forkobserver;
 pub mod rss;
 pub mod types;

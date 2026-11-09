@@ -3,17 +3,13 @@
 //! The fork-observer binary: loads the configuration, spawns a task per node
 //! that keeps the cache up to date, and serves the API.
 
-use bitcoin_pool_identification::{Pool, PoolIdentification};
-use corepc_client::bitcoin::{Address, BlockHash, Network};
+use corepc_client::bitcoin::{BlockHash, Network};
 use env_logger::Env;
-use itertools::Itertools;
 use log::{debug, error, info, warn};
 use petgraph::graph::NodeIndex;
 use rusqlite::Connection;
-use serde::Deserialize;
 use std::cmp::max;
 use std::collections::{BTreeMap, BTreeSet};
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{Mutex, broadcast};
@@ -31,6 +27,7 @@ use fork_observer::config;
 use fork_observer::db;
 use fork_observer::error::{DbError, MainError};
 use fork_observer::headertree;
+use fork_observer::pool_identification::{identify_pool, load_pools};
 use fork_observer::remote_forkobserver;
 use fork_observer::types::{Caches, ChainTip, ChainTipStatus, Db, NetworkJson, Tree};
 
@@ -534,33 +531,7 @@ async fn main() -> Result<(), MainError> {
                 Some(ref network) => network.to_network(),
                 None => Network::Regtest,
             };
-            let pool_identification_data = {
-                #[derive(Deserialize)]
-                struct PoolWithDatum {
-                    #[serde(default, rename = "DATUM")]
-                    datum: bool,
-                    #[serde(flatten)]
-                    pool: Pool,
-                }
-                let (datum_pools, non_datum_pools) = serde_json::from_str::<Vec<PoolWithDatum>>(
-                    include_str!("../mining-pools/pools-v2.json"),
-                )
-                .expect("the pool JSON list should be parseable")
-                .into_iter()
-                .partition::<Vec<_>, _>(|pool| pool.datum);
-                datum_pools
-                    .into_iter()
-                    .chain(non_datum_pools)
-                    .map(|pool| pool.pool)
-                    .update(|pool| {
-                        pool.addresses.retain(|addr| {
-                            Address::from_str(addr)
-                                .unwrap()
-                                .is_valid_for_network(pool_identification_network)
-                        })
-                    })
-                    .collect_vec()
-            };
+            let pool_identification_data = load_pools(pool_identification_network);
 
             let limit = 100;
             let mut buffer: Vec<BlockHash> = Vec::with_capacity(limit);
@@ -603,11 +574,12 @@ async fn main() -> Result<(), MainError> {
                             .await
                         {
                             Ok(coinbase) => {
-                                miner = match coinbase.identify_pool(
+                                miner = match identify_pool(
+                                    &coinbase,
                                     pool_identification_network,
                                     &pool_identification_data,
                                 ) {
-                                    Some(result) => result.pool.name,
+                                    Some(pool) => pool.name.clone(),
                                     None => MINER_UNKNOWN.to_string(),
                                 };
                             }

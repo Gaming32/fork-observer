@@ -28,6 +28,7 @@ blake2 = "0.10.6"
 
 async-trait = "0.1.92"
 bitcoin-pool-identification = "0.3.7"
+regex = "1.10"
 # Use the `ring` rustls provider (not the default aws-lc-rs) so that the whole
 # dependency graph agrees on a single rustls CryptoProvider. corepc-node's
 # downloader (via bitreq) pulls `rustls/ring`; mixing it with aws-lc-rs makes
